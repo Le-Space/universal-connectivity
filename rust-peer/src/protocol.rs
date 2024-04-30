@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::{io, AsyncRead, AsyncWrite};
 use libp2p::{
-    core::upgrade::{read_length_prefixed, write_length_prefixed},
+    core::upgrade::{read_one, write_one},
     request_response, StreamProtocol,
 };
 
@@ -29,7 +29,7 @@ impl request_response::Codec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 1_000_000).await?;
+        let vec = read_one(io, 1_000_000).await?;
 
         if vec.is_empty() {
             return Err(io::ErrorKind::UnexpectedEof.into());
@@ -48,7 +48,7 @@ impl request_response::Codec for FileExchangeCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
-        let vec = read_length_prefixed(io, 500_000_000).await?; // update transfer maximum
+        let vec = read_one(io, 500_000_000).await?; // update transfer maximum
 
         if vec.is_empty() {
             return Err(io::ErrorKind::UnexpectedEof.into());
@@ -66,7 +66,7 @@ impl request_response::Codec for FileExchangeCodec {
     where
         T: AsyncWrite + Unpin + Send,
     {
-        write_length_prefixed(io, file_id).await?;
+        write_one(io, file_id).await?;
 
         Ok(())
     }
@@ -80,7 +80,7 @@ impl request_response::Codec for FileExchangeCodec {
     where
         T: AsyncWrite + Unpin + Send,
     {
-        write_length_prefixed(io, file_body).await?;
+        write_one(io, file_body).await?;
 
         Ok(())
     }

@@ -31,7 +31,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::fs;
-use crate::peer::Peer;
+
 use crate::protocol::FileRequest;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(15);
