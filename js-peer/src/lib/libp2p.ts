@@ -13,9 +13,16 @@ import { gossipsub } from '@chainsafe/libp2p-gossipsub'
 import { webSockets } from '@libp2p/websockets'
 import { webTransport } from '@libp2p/webtransport'
 import { webRTC, webRTCDirect } from '@libp2p/webrtc'
-import { CHAT_FILE_TOPIC, CHAT_TOPIC, WEBRTC_BOOTSTRAP_PEER_ID, WEBTRANSPORT_BOOTSTRAP_PEER_ID } from './constants'
+import {
+  CHAT_FILE_TOPIC,
+  CHAT_TOPIC,
+  WEBRTC_BOOTSTRAP_PEER_ID,
+  WEBTRANSPORT_BOOTSTRAP_PEER_ID,
+  PUBSUB_PEER_DISCOVERY
+} from './constants'
 import * as filters from "@libp2p/websockets/filters"
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
+import {pubsubPeerDiscovery} from "@libp2p/pubsub-peer-discovery";
 
 export async function startLibp2p() {
   // enable verbose logging in browser console to view debug logs
@@ -64,6 +71,25 @@ export async function startLibp2p() {
     connectionGater: {
       denyDialMultiaddr: async () => false,
     },
+    peerDiscovery: [
+      bootstrap({
+        list: [
+        // '12D3KooWFhXabKDwALpzqMbto94sB7rvmZ6M28hs9Y9xSopDKwQr'
+        // WEBRTC_BOOTSTRAP_NODE,
+        // WEBTRANSPORT_BOOTSTRAP_NODE,
+        '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
+        '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
+        '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zhtx6BHJX9KiKNN6tpvbUcqanj75Nb',
+        '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ4BhTzzA3gU1ZjYZcYW3dwt',
+        ],
+        //  list: ['/ip4/147.28.186.157/udp/9095/quic-v1/webtransport/certhash/uEiCmLPMgXJ1F1wQ-OgOWJEVa_SYB_jLSf5IkQ_d3V98GBQ/certhash/uEiB-ti6URtr64LV8HYDMvZzzzrb1iNEIT-vGY0yd6UYk2g/p2p/12D3KooWFhXabKDwALpzqMbto94sB7rvmZ6M28hs9Y9xSopDKwQr']
+      }),
+      pubsubPeerDiscovery({
+        interval: 10000,
+        topics: PUBSUB_PEER_DISCOVERY,
+        listenOnly: false
+      })
+    ],
     // The app-specific go and rust peers use WebTransport and WebRTC-direct which have ephemeral multiadrrs that change.
     // Thus, we dial them using only their peer id below, with delegated routing to discovery their multiaddrs
     // peerDiscovery: [
@@ -87,7 +113,7 @@ export async function startLibp2p() {
       }),
       // Delegated routing helps us discover the ephemeral multiaddrs of the dedicated go and rust bootstrap peers
       // This relies on the public delegated routing endpoint https://docs.ipfs.tech/concepts/public-utilities/#delegated-routing
-      delegatedRouting: () => createDelegatedRoutingV1HttpApiClient('https://delegated-ipfs.dev'),
+      // delegatedRouting: () => createDelegatedRoutingV1HttpApiClient('https://delegated-ipfs.dev'),
       identify: identify()
     },
   })

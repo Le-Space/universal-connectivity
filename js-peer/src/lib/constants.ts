@@ -1,3 +1,5 @@
+export const PUBSUB_PEER_DISCOVERY =  ['universal-connectivity._peer-discovery._p2p._pubsub']
+
 export const CHAT_TOPIC = "universal-connectivity"
 export const CHAT_FILE_TOPIC = "universal-connectivity-file"
 export const FILE_EXCHANGE_PROTOCOL = "/universal-connectivity-file/1"
