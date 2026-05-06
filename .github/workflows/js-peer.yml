@@ -46,12 +46,39 @@ jobs:
           fi
           echo "github.event_name=${{ github.event_name }}"
           echo "github.ref=${{ github.ref }}"
-      - name: Deploy preview on Aleph
+      - name: Deploy preview on Aleph for PRs
         id: deploy
         if: github.event_name == 'pull_request'
         uses: aleph-im/web3-hosting-action@v1.1.4
         with:
           path: js-peer/out
+      - name: Deploy preview on Aleph for branch pushes
+        id: deploy_branch
+        if: github.event_name == 'push' && github.ref != 'refs/heads/main'
+        uses: aleph-im/web3-hosting-action@v1.1.4
+        with:
+          path: js-peer/out
+          private-key: ${{ env.ALEPH_PRIVATE_KEY }}
+          retention_days: ${{ vars.ALEPH_RETENTION_DAYS }}
+      - name: Summarize Aleph preview deployment
+        if: (github.event_name == 'pull_request') || (github.event_name == 'push' && github.ref != 'refs/heads/main')
+        run: |
+          {
+            echo '## Aleph Preview Deployment'
+            echo
+            if [[ -n "${URL:-}" ]]; then
+              echo "- URL: ${URL}"
+            fi
+            if [[ -n "${ITEM_HASH:-}" ]]; then
+              echo "- Item hash: ${ITEM_HASH}"
+            fi
+            if [[ -n "${CID:-}" ]]; then
+              echo "- CID: ${CID}"
+            fi
+            if [[ -z "${URL:-}${ITEM_HASH:-}${CID:-}" ]]; then
+              echo '- Preview deployment finished, but no URL/CID output was exposed by the action.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Deploy production on Aleph
         id: deploy_prod
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.ALEPH_PRIVATE_KEY != ''
