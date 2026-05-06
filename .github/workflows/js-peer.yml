@@ -56,5 +56,15 @@ jobs:
         with:
           path: js-peer/out
           private-key: ${{ env.ALEPH_PRIVATE_KEY }}
-          domain: ${{ vars.ALEPH_DOMAIN }}
           retention_days: ${{ vars.ALEPH_RETENTION_DAYS }}
+      - name: Link production domain on Aleph as IPFS
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.ALEPH_PRIVATE_KEY != '' && vars.ALEPH_DOMAIN != ''
+        run: |
+          if [[ -z "${ITEM_HASH:-}" ]]; then
+            echo "ITEM_HASH is missing after Aleph deployment"
+            exit 1
+          fi
+          mkdir -p /home/runner/.aleph-im/private-keys
+          echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
+          aleph domain detach "${{ vars.ALEPH_DOMAIN }}" --no-ask || true
+          aleph domain add "${{ vars.ALEPH_DOMAIN }}" --target ipfs --item-hash "$ITEM_HASH" --no-ask
