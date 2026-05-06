@@ -67,4 +67,4 @@ jobs:
           mkdir -p /home/runner/.aleph-im/private-keys
           echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
           aleph domain detach "${{ vars.ALEPH_DOMAIN }}" --no-ask || true
-          aleph domain add "${{ vars.ALEPH_DOMAIN }}" --target ipfs --item-hash "$ITEM_HASH" --no-ask
+          aleph domain attach "${{ vars.ALEPH_DOMAIN }}" --item-hash "$ITEM_HASH" --catch-all-path /index.html --no-ask
