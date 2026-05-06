@@ -16,6 +16,8 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
     defaults:
       run:
         working-directory: js-peer
@@ -35,10 +37,10 @@ jobs:
           path: js-peer/out
       - name: Deploy production on Aleph
         id: deploy_prod
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.ALEPH_PRIVATE_KEY != ''
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && env.ALEPH_PRIVATE_KEY != ''
         uses: aleph-im/web3-hosting-action@v1.1.4
         with:
           path: js-peer/out
-          private-key: ${{ secrets.ALEPH_PRIVATE_KEY }}
+          private-key: ${{ env.ALEPH_PRIVATE_KEY }}
           domain: ${{ vars.ALEPH_DOMAIN }}
           retention_days: ${{ vars.ALEPH_RETENTION_DAYS }}
