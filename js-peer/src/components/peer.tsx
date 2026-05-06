@@ -26,7 +26,7 @@ export function PeerWrapper({ peer, self, withName, withUnread }: PeerProps) {
       // Check if peer is connected
       const connections = libp2p.getConnections(peer)
       setIsConnected(connections.length > 0)
-      
+
       // Check if peer is identified
       if (await libp2p.peerStore.has(peer)) {
         const p = await libp2p.peerStore.get(peer)
@@ -50,12 +50,12 @@ export function PeerWrapper({ peer, self, withName, withUnread }: PeerProps) {
     }
 
     checkPeerStatus()
-    
+
     // Listen for identify events to update state when peer gets identified
     libp2p.addEventListener('peer:identify', handleIdentify)
     libp2p.addEventListener('connection:open', handleConnectionChange)
     libp2p.addEventListener('connection:close', handleConnectionChange)
-    
+
     return () => {
       libp2p.removeEventListener('peer:identify', handleIdentify)
       libp2p.removeEventListener('connection:open', handleConnectionChange)
@@ -68,30 +68,67 @@ export function PeerWrapper({ peer, self, withName, withUnread }: PeerProps) {
 
   // Debug logging
   if (!self && identified) {
-    console.log(`Peer ${peer.toString().slice(-8)}: identified=${identified}, connected=${isConnected}, isDMSupported=${isDMSupported}`)
+    console.log(
+      `Peer ${peer.toString().slice(-8)}: identified=${identified}, connected=${isConnected}, isDMSupported=${isDMSupported}`,
+    )
   }
 
   if (self) {
-    return <Peer peer={peer} self={self} withName={withName} withUnread={withUnread} isConnected={isConnected} isDMSupported={false} />
+    return (
+      <Peer
+        peer={peer}
+        self={self}
+        withName={withName}
+        withUnread={withUnread}
+        isConnected={isConnected}
+        isDMSupported={false}
+      />
+    )
   }
 
   // If we've proven DM support (inbound or outbound), allow DM regardless of identify
   if (isDMSupported) {
     return (
-      <div className="relative w-full cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1 transition-colors" onClick={handleSetRoomId}>
-        <Peer peer={peer} self={self} withName={withName} withUnread={withUnread} isConnected={isConnected} isDMSupported={true} />
+      <div
+        className="relative w-full cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1 transition-colors"
+        onClick={handleSetRoomId}
+      >
+        <Peer
+          peer={peer}
+          self={self}
+          withName={withName}
+          withUnread={withUnread}
+          isConnected={isConnected}
+          isDMSupported={true}
+        />
       </div>
     )
   }
 
   // Otherwise fall back to identify-gated display
   if (!identified) {
-    return <Peer peer={peer} self={self} withName={withName} withUnread={withUnread} isConnected={isConnected} isDMSupported={false} />
+    return (
+      <Peer
+        peer={peer}
+        self={self}
+        withName={withName}
+        withUnread={withUnread}
+        isConnected={isConnected}
+        isDMSupported={false}
+      />
+    )
   }
 
   return (
     <div className="relative inline-block text-left group">
-      <Peer peer={peer} self={self} withName={withName} withUnread={withUnread} isConnected={isConnected} isDMSupported={false} />
+      <Peer
+        peer={peer}
+        self={self}
+        withName={withName}
+        withUnread={withUnread}
+        isConnected={isConnected}
+        isDMSupported={false}
+      />
       <div className="absolute top-10 left-5 scale-0 rounded bg-white border text-gray-600 p-2 text-xs group-hover:scale-100 z-10">
         Direct{'\u00A0'}message unsupported
       </div>
@@ -112,9 +149,12 @@ export function Peer({ peer, self, withName, withUnread, isConnected, isDMSuppor
       <div className="relative">
         <Blockies seed={peer.toString()} size={15} scale={3} className="rounded max-h-10 max-w-10" />
         {isConnected !== undefined && (
-          <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
-            isConnected ? 'bg-green-500' : 'bg-gray-400'
-          }`} title={isConnected ? 'Connected' : 'Not connected'} />
+          <div
+            className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
+              isConnected ? 'bg-green-500' : 'bg-gray-400'
+            }`}
+            title={isConnected ? 'Connected' : 'Not connected'}
+          />
         )}
       </div>
       {withName && (

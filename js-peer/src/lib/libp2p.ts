@@ -68,17 +68,9 @@ export async function startLibp2p(): Promise<Libp2pType> {
 
   const libp2p = await createLibp2p({
     addresses: {
-      listen: [
-        '/webrtc',
-      ],
+      listen: ['/webrtc'],
     },
-    transports: [
-      webTransport(),
-      webSockets(),
-      webRTC(),
-      webRTCDirect(),
-      circuitRelayTransport(),
-    ],
+    transports: [webTransport(), webSockets(), webRTC(), webRTCDirect(), circuitRelayTransport()],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: {
@@ -123,18 +115,20 @@ export async function startLibp2p(): Promise<Libp2pType> {
     void dialWebRTCMaddrs(libp2p, multiaddrs)
   })
 
-  Promise.resolve().then(async () => {
-    for (const addr of relayBootstrapAddrs) {
-      try {
-        log('dialling configured relay bootstrap address: %s', addr)
-        await connectToMultiaddr(libp2p)(multiaddr(addr))
-      } catch (error) {
-        log.error('failed to dial configured relay bootstrap address %s: %o', addr, error)
+  Promise.resolve()
+    .then(async () => {
+      for (const addr of relayBootstrapAddrs) {
+        try {
+          log('dialling configured relay bootstrap address: %s', addr)
+          await connectToMultiaddr(libp2p)(multiaddr(addr))
+        } catch (error) {
+          log.error('failed to dial configured relay bootstrap address %s: %o', addr, error)
+        }
       }
-    }
-  }).catch((error) => {
-    log.error('bootstrap dial error: %o', error)
-  })
+    })
+    .catch((error) => {
+      log.error('bootstrap dial error: %o', error)
+    })
 
   return libp2p as Libp2pType
 }
@@ -181,9 +175,7 @@ async function getRelayBootstrapAddrs(client: DelegatedRoutingV1HttpApiClient): 
   }
 
   const bootstrapPeerIds = getConfiguredBootstrapPeerIds()
-  const peers = await Promise.all(
-    bootstrapPeerIds.map((peerId) => first(client.getPeers(peerIdFromString(peerId))))
-  )
+  const peers = await Promise.all(bootstrapPeerIds.map((peerId) => first(client.getPeers(peerIdFromString(peerId)))))
 
   const relayBootstrapAddrs: string[] = []
   for (const peer of peers) {
@@ -205,8 +197,7 @@ async function getRelayBootstrapAddrs(client: DelegatedRoutingV1HttpApiClient): 
   return relayBootstrapAddrs
 }
 
-const getRelayBootstrapAddr = (maddr: Multiaddr, peer: PeerId): string =>
-  `${maddr.toString()}/p2p/${peer.toString()}`
+const getRelayBootstrapAddr = (maddr: Multiaddr, peer: PeerId): string => `${maddr.toString()}/p2p/${peer.toString()}`
 
 function normalizeRelayBootstrapAddr(addr: string): string {
   return addr.endsWith('/p2p-circuit') ? addr.slice(0, -'/p2p-circuit'.length) : addr

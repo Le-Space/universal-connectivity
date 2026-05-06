@@ -56,17 +56,21 @@ export class DirectMessage extends TypedEventEmitter<DirectMessageEvents> implem
   async start(): Promise<void> {
     // Register protocol handler FIRST, before topology
     await this.components.registrar.handle(DIRECT_MESSAGE_PROTOCOL, async ({ stream, connection }) => {
-      try { console.debug('[DM] handler: incoming stream from', connection.remotePeer.toString().slice(-8)) } catch {}
+      try {
+        console.debug('[DM] handler: incoming stream from', connection.remotePeer.toString().slice(-8))
+      } catch {}
       await this.receive(stream, connection)
     })
-    
+
     // Then register topology to track peer connections
     this.topologyId = await this.components.registrar.register(DIRECT_MESSAGE_PROTOCOL, {
       onConnect: this.handleConnect.bind(this),
       onDisconnect: this.handleDisconnect.bind(this),
     })
-    
-    try { console.debug('[DM] start: registered handler and topology for', DIRECT_MESSAGE_PROTOCOL) } catch {}
+
+    try {
+      console.debug('[DM] start: registered handler and topology for', DIRECT_MESSAGE_PROTOCOL)
+    } catch {}
   }
 
   async afterStart(): Promise<void> {
@@ -83,7 +87,9 @@ export class DirectMessage extends TypedEventEmitter<DirectMessageEvents> implem
   private handleConnect(peerId: PeerId): void {
     this.dmPeers.add(peerId.toString())
     // debug: topology connect fired
-    try { console.debug('[DM] onConnect:', peerId.toString()) } catch {}
+    try {
+      console.debug('[DM] onConnect:', peerId.toString())
+    } catch {}
   }
 
   private handleDisconnect(peerId: PeerId): void {
@@ -104,7 +110,9 @@ export class DirectMessage extends TypedEventEmitter<DirectMessageEvents> implem
     try {
       // openConnection will return the current open connection if it already exists, or create a new one
       // debug: attempting openConnection
-      try { console.debug('[DM] send: openConnection ->', peerId.toString()) } catch {}
+      try {
+        console.debug('[DM] send: openConnection ->', peerId.toString())
+      } catch {}
       const conn = await this.components.connectionManager.openConnection(peerId, { signal: AbortSignal.timeout(5000) })
       if (!conn) {
         throw new Error(ERRORS.NO_CONNECTION)
@@ -112,7 +120,9 @@ export class DirectMessage extends TypedEventEmitter<DirectMessageEvents> implem
 
       // Single protocols can skip full negotiation
       // debug: attempting newStream for protocol
-      try { console.debug('[DM] send: newStream', DIRECT_MESSAGE_PROTOCOL) } catch {}
+      try {
+        console.debug('[DM] send: newStream', DIRECT_MESSAGE_PROTOCOL)
+      } catch {}
       const stream = await conn.newStream(DIRECT_MESSAGE_PROTOCOL, {
         negotiateFully: false,
       })

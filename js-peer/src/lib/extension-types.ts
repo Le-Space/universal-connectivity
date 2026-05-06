@@ -1,6 +1,6 @@
 /**
  * Extension system types for UC decentralized plugin infrastructure
- * 
+ *
  * Uses libp2p identify protocol for discovery and direct streams for communication
  */
 

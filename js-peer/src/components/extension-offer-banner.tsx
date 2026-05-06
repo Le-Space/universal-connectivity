@@ -11,10 +11,7 @@ export default function ExtensionOfferBanner() {
   return (
     <div className="fixed top-4 right-4 z-50 space-y-2 max-w-md">
       {offers.map((offer) => (
-        <div
-          key={offer.manifest.id}
-          className="bg-blue-50 border-l-4 border-blue-400 p-4 shadow-lg rounded"
-        >
+        <div key={offer.manifest.id} className="bg-blue-50 border-l-4 border-blue-400 p-4 shadow-lg rounded">
           <div className="flex items-start">
             <div className="flex-shrink-0">
               {offer.manifest.icon ? (
@@ -34,25 +31,18 @@ export default function ExtensionOfferBanner() {
               )}
             </div>
             <div className="ml-3 flex-1">
-              <h3 className="text-sm font-medium text-blue-800">
-                New Extension Available
-              </h3>
+              <h3 className="text-sm font-medium text-blue-800">New Extension Available</h3>
               <div className="mt-1">
-                <p className="text-sm font-semibold text-gray-800">
-                  {offer.manifest.name}
-                </p>
-                <p className="text-xs text-gray-600 mt-1">
-                  {offer.manifest.description}
-                </p>
+                <p className="text-sm font-semibold text-gray-800">{offer.manifest.name}</p>
+                <p className="text-xs text-gray-600 mt-1">{offer.manifest.description}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {offer.peerIds.length === 1 
+                  {offer.peerIds.length === 1
                     ? `From: ...${offer.peerIds[0].slice(-8)}`
-                    : `From ${offer.peerIds.length} peers`
-                  }
+                    : `From ${offer.peerIds.length} peers`}
                 </p>
                 {offer.manifest.commands && offer.manifest.commands.length > 0 && (
                   <p className="text-xs text-gray-600 mt-1">
-                    Commands: {offer.manifest.commands.map(cmd => `/${offer.manifest.id}-${cmd.name}`).join(', ')}
+                    Commands: {offer.manifest.commands.map((cmd) => `/${offer.manifest.id}-${cmd.name}`).join(', ')}
                   </p>
                 )}
               </div>

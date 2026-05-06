@@ -29,121 +29,126 @@ export namespace ext {
 
     export const codec = (): Codec<ExtensionManifest> => {
       if (_codec == null) {
-        _codec = message<ExtensionManifest>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
-
-          if ((obj.id != null && obj.id !== '')) {
-            w.uint32(10)
-            w.string(obj.id)
-          }
-
-          if ((obj.name != null && obj.name !== '')) {
-            w.uint32(18)
-            w.string(obj.name)
-          }
-
-          if ((obj.version != null && obj.version !== '')) {
-            w.uint32(26)
-            w.string(obj.version)
-          }
-
-          if ((obj.description != null && obj.description !== '')) {
-            w.uint32(34)
-            w.string(obj.description)
-          }
-
-          if ((obj.author != null && obj.author !== '')) {
-            w.uint32(42)
-            w.string(obj.author)
-          }
-
-          if ((obj.publicUrl != null && obj.publicUrl !== '')) {
-            w.uint32(50)
-            w.string(obj.publicUrl)
-          }
-
-          if (obj.commands != null) {
-            for (const value of obj.commands) {
-              w.uint32(58)
-              ext.ExtensionCommand.codec().encode(value, w)
+        _codec = message<ExtensionManifest>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
             }
-          }
 
-          if ((obj.icon != null && obj.icon !== '')) {
-            w.uint32(66)
-            w.string(obj.icon)
-          }
+            if (obj.id != null && obj.id !== '') {
+              w.uint32(10)
+              w.string(obj.id)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            id: '',
-            name: '',
-            version: '',
-            description: '',
-            author: '',
-            publicUrl: '',
-            commands: [],
-            icon: ''
-          }
+            if (obj.name != null && obj.name !== '') {
+              w.uint32(18)
+              w.string(obj.name)
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            if (obj.version != null && obj.version !== '') {
+              w.uint32(26)
+              w.string(obj.version)
+            }
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            if (obj.description != null && obj.description !== '') {
+              w.uint32(34)
+              w.string(obj.description)
+            }
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.id = reader.string()
-                break
+            if (obj.author != null && obj.author !== '') {
+              w.uint32(42)
+              w.string(obj.author)
+            }
+
+            if (obj.publicUrl != null && obj.publicUrl !== '') {
+              w.uint32(50)
+              w.string(obj.publicUrl)
+            }
+
+            if (obj.commands != null) {
+              for (const value of obj.commands) {
+                w.uint32(58)
+                ext.ExtensionCommand.codec().encode(value, w)
               }
-              case 2: {
-                obj.name = reader.string()
-                break
-              }
-              case 3: {
-                obj.version = reader.string()
-                break
-              }
-              case 4: {
-                obj.description = reader.string()
-                break
-              }
-              case 5: {
-                obj.author = reader.string()
-                break
-              }
-              case 6: {
-                obj.publicUrl = reader.string()
-                break
-              }
-              case 7: {
-                if (opts.limits?.commands != null && obj.commands.length === opts.limits.commands) {
-                  throw new MaxLengthError('Decode error - map field "commands" had too many elements')
+            }
+
+            if (obj.icon != null && obj.icon !== '') {
+              w.uint32(66)
+              w.string(obj.icon)
+            }
+
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              id: '',
+              name: '',
+              version: '',
+              description: '',
+              author: '',
+              publicUrl: '',
+              commands: [],
+              icon: '',
+            }
+
+            const end = length == null ? reader.len : reader.pos + length
+
+            while (reader.pos < end) {
+              const tag = reader.uint32()
+
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.id = reader.string()
+                  break
                 }
+                case 2: {
+                  obj.name = reader.string()
+                  break
+                }
+                case 3: {
+                  obj.version = reader.string()
+                  break
+                }
+                case 4: {
+                  obj.description = reader.string()
+                  break
+                }
+                case 5: {
+                  obj.author = reader.string()
+                  break
+                }
+                case 6: {
+                  obj.publicUrl = reader.string()
+                  break
+                }
+                case 7: {
+                  if (opts.limits?.commands != null && obj.commands.length === opts.limits.commands) {
+                    throw new MaxLengthError('Decode error - map field "commands" had too many elements')
+                  }
 
-                obj.commands.push(ext.ExtensionCommand.codec().decode(reader, reader.uint32(), {
-                  limits: opts.limits?.commands$
-                }))
-                break
-              }
-              case 8: {
-                obj.icon = reader.string()
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+                  obj.commands.push(
+                    ext.ExtensionCommand.codec().decode(reader, reader.uint32(), {
+                      limits: opts.limits?.commands$,
+                    }),
+                  )
+                  break
+                }
+                case 8: {
+                  obj.icon = reader.string()
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -153,7 +158,10 @@ export namespace ext {
       return encodeMessage(obj, ExtensionManifest.codec())
     }
 
-    export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<ExtensionManifest>): ExtensionManifest => {
+    export const decode = (
+      buf: Uint8Array | Uint8ArrayList,
+      opts?: DecodeOptions<ExtensionManifest>,
+    ): ExtensionManifest => {
       return decodeMessage(buf, ExtensionManifest.codec(), opts)
     }
   }
@@ -169,63 +177,66 @@ export namespace ext {
 
     export const codec = (): Codec<ExtensionCommand> => {
       if (_codec == null) {
-        _codec = message<ExtensionCommand>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
+        _codec = message<ExtensionCommand>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
+            }
 
-          if ((obj.name != null && obj.name !== '')) {
-            w.uint32(10)
-            w.string(obj.name)
-          }
+            if (obj.name != null && obj.name !== '') {
+              w.uint32(10)
+              w.string(obj.name)
+            }
 
-          if ((obj.syntax != null && obj.syntax !== '')) {
-            w.uint32(18)
-            w.string(obj.syntax)
-          }
+            if (obj.syntax != null && obj.syntax !== '') {
+              w.uint32(18)
+              w.string(obj.syntax)
+            }
 
-          if ((obj.description != null && obj.description !== '')) {
-            w.uint32(26)
-            w.string(obj.description)
-          }
+            if (obj.description != null && obj.description !== '') {
+              w.uint32(26)
+              w.string(obj.description)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            name: '',
-            syntax: '',
-            description: ''
-          }
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              name: '',
+              syntax: '',
+              description: '',
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            const end = length == null ? reader.len : reader.pos + length
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            while (reader.pos < end) {
+              const tag = reader.uint32()
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.name = reader.string()
-                break
-              }
-              case 2: {
-                obj.syntax = reader.string()
-                break
-              }
-              case 3: {
-                obj.description = reader.string()
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.name = reader.string()
+                  break
+                }
+                case 2: {
+                  obj.syntax = reader.string()
+                  break
+                }
+                case 3: {
+                  obj.description = reader.string()
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -235,7 +246,10 @@ export namespace ext {
       return encodeMessage(obj, ExtensionCommand.codec())
     }
 
-    export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<ExtensionCommand>): ExtensionCommand => {
+    export const decode = (
+      buf: Uint8Array | Uint8ArrayList,
+      opts?: DecodeOptions<ExtensionCommand>,
+    ): ExtensionCommand => {
       return decodeMessage(buf, ExtensionCommand.codec(), opts)
     }
   }
@@ -250,72 +264,75 @@ export namespace ext {
 
     export const codec = (): Codec<Request> => {
       if (_codec == null) {
-        _codec = message<Request>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
+        _codec = message<Request>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
+            }
 
-          obj = { ...obj }
+            obj = { ...obj }
 
-          if (obj.command != null) {
-            obj.manifest = undefined
-          }
+            if (obj.command != null) {
+              obj.manifest = undefined
+            }
 
-          if (obj.manifest != null) {
-            obj.command = undefined
-          }
+            if (obj.manifest != null) {
+              obj.command = undefined
+            }
 
-          if (obj.manifest != null) {
-            w.uint32(10)
-            ext.ManifestRequest.codec().encode(obj.manifest, w)
-          }
+            if (obj.manifest != null) {
+              w.uint32(10)
+              ext.ManifestRequest.codec().encode(obj.manifest, w)
+            }
 
-          if (obj.command != null) {
-            w.uint32(18)
-            ext.CommandRequest.codec().encode(obj.command, w)
-          }
+            if (obj.command != null) {
+              w.uint32(18)
+              ext.CommandRequest.codec().encode(obj.command, w)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {}
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {}
 
-          const end = length == null ? reader.len : reader.pos + length
+            const end = length == null ? reader.len : reader.pos + length
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            while (reader.pos < end) {
+              const tag = reader.uint32()
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.manifest = ext.ManifestRequest.codec().decode(reader, reader.uint32(), {
-                  limits: opts.limits?.manifest
-                })
-                break
-              }
-              case 2: {
-                obj.command = ext.CommandRequest.codec().decode(reader, reader.uint32(), {
-                  limits: opts.limits?.command
-                })
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.manifest = ext.ManifestRequest.codec().decode(reader, reader.uint32(), {
+                    limits: opts.limits?.manifest,
+                  })
+                  break
+                }
+                case 2: {
+                  obj.command = ext.CommandRequest.codec().decode(reader, reader.uint32(), {
+                    limits: opts.limits?.command,
+                  })
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          if (obj.command != null) {
-            delete obj.manifest
-          }
+            if (obj.command != null) {
+              delete obj.manifest
+            }
 
-          if (obj.manifest != null) {
-            delete obj.command
-          }
+            if (obj.manifest != null) {
+              delete obj.command
+            }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -340,72 +357,75 @@ export namespace ext {
 
     export const codec = (): Codec<Response> => {
       if (_codec == null) {
-        _codec = message<Response>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
+        _codec = message<Response>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
+            }
 
-          obj = { ...obj }
+            obj = { ...obj }
 
-          if (obj.command != null) {
-            obj.manifest = undefined
-          }
+            if (obj.command != null) {
+              obj.manifest = undefined
+            }
 
-          if (obj.manifest != null) {
-            obj.command = undefined
-          }
+            if (obj.manifest != null) {
+              obj.command = undefined
+            }
 
-          if (obj.manifest != null) {
-            w.uint32(10)
-            ext.ManifestResponse.codec().encode(obj.manifest, w)
-          }
+            if (obj.manifest != null) {
+              w.uint32(10)
+              ext.ManifestResponse.codec().encode(obj.manifest, w)
+            }
 
-          if (obj.command != null) {
-            w.uint32(18)
-            ext.CommandResponse.codec().encode(obj.command, w)
-          }
+            if (obj.command != null) {
+              w.uint32(18)
+              ext.CommandResponse.codec().encode(obj.command, w)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {}
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {}
 
-          const end = length == null ? reader.len : reader.pos + length
+            const end = length == null ? reader.len : reader.pos + length
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            while (reader.pos < end) {
+              const tag = reader.uint32()
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.manifest = ext.ManifestResponse.codec().decode(reader, reader.uint32(), {
-                  limits: opts.limits?.manifest
-                })
-                break
-              }
-              case 2: {
-                obj.command = ext.CommandResponse.codec().decode(reader, reader.uint32(), {
-                  limits: opts.limits?.command
-                })
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.manifest = ext.ManifestResponse.codec().decode(reader, reader.uint32(), {
+                    limits: opts.limits?.manifest,
+                  })
+                  break
+                }
+                case 2: {
+                  obj.command = ext.CommandResponse.codec().decode(reader, reader.uint32(), {
+                    limits: opts.limits?.command,
+                  })
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          if (obj.command != null) {
-            delete obj.manifest
-          }
+            if (obj.command != null) {
+              delete obj.manifest
+            }
 
-          if (obj.manifest != null) {
-            delete obj.command
-          }
+            if (obj.manifest != null) {
+              delete obj.command
+            }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -429,43 +449,46 @@ export namespace ext {
 
     export const codec = (): Codec<ManifestRequest> => {
       if (_codec == null) {
-        _codec = message<ManifestRequest>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
+        _codec = message<ManifestRequest>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
+            }
 
-          if ((obj.timestamp != null && obj.timestamp !== 0n)) {
-            w.uint32(8)
-            w.int64(obj.timestamp)
-          }
+            if (obj.timestamp != null && obj.timestamp !== 0n) {
+              w.uint32(8)
+              w.int64(obj.timestamp)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            timestamp: 0n
-          }
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              timestamp: 0n,
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            const end = length == null ? reader.len : reader.pos + length
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            while (reader.pos < end) {
+              const tag = reader.uint32()
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.timestamp = reader.int64()
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.timestamp = reader.int64()
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -475,7 +498,10 @@ export namespace ext {
       return encodeMessage(obj, ManifestRequest.codec())
     }
 
-    export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<ManifestRequest>): ManifestRequest => {
+    export const decode = (
+      buf: Uint8Array | Uint8ArrayList,
+      opts?: DecodeOptions<ManifestRequest>,
+    ): ManifestRequest => {
       return decodeMessage(buf, ManifestRequest.codec(), opts)
     }
   }
@@ -490,54 +516,57 @@ export namespace ext {
 
     export const codec = (): Codec<ManifestResponse> => {
       if (_codec == null) {
-        _codec = message<ManifestResponse>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
+        _codec = message<ManifestResponse>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
+            }
 
-          if (obj.manifest != null) {
-            w.uint32(10)
-            ext.ExtensionManifest.codec().encode(obj.manifest, w)
-          }
+            if (obj.manifest != null) {
+              w.uint32(10)
+              ext.ExtensionManifest.codec().encode(obj.manifest, w)
+            }
 
-          if ((obj.timestamp != null && obj.timestamp !== 0n)) {
-            w.uint32(16)
-            w.int64(obj.timestamp)
-          }
+            if (obj.timestamp != null && obj.timestamp !== 0n) {
+              w.uint32(16)
+              w.int64(obj.timestamp)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            timestamp: 0n
-          }
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              timestamp: 0n,
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            const end = length == null ? reader.len : reader.pos + length
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            while (reader.pos < end) {
+              const tag = reader.uint32()
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.manifest = ext.ExtensionManifest.codec().decode(reader, reader.uint32(), {
-                  limits: opts.limits?.manifest
-                })
-                break
-              }
-              case 2: {
-                obj.timestamp = reader.int64()
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.manifest = ext.ExtensionManifest.codec().decode(reader, reader.uint32(), {
+                    limits: opts.limits?.manifest,
+                  })
+                  break
+                }
+                case 2: {
+                  obj.timestamp = reader.int64()
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -547,7 +576,10 @@ export namespace ext {
       return encodeMessage(obj, ManifestResponse.codec())
     }
 
-    export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<ManifestResponse>): ManifestResponse => {
+    export const decode = (
+      buf: Uint8Array | Uint8ArrayList,
+      opts?: DecodeOptions<ManifestResponse>,
+    ): ManifestResponse => {
       return decodeMessage(buf, ManifestResponse.codec(), opts)
     }
   }
@@ -565,89 +597,92 @@ export namespace ext {
 
     export const codec = (): Codec<CommandRequest> => {
       if (_codec == null) {
-        _codec = message<CommandRequest>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
-
-          if ((obj.requestId != null && obj.requestId !== '')) {
-            w.uint32(10)
-            w.string(obj.requestId)
-          }
-
-          if ((obj.extensionId != null && obj.extensionId !== '')) {
-            w.uint32(18)
-            w.string(obj.extensionId)
-          }
-
-          if ((obj.command != null && obj.command !== '')) {
-            w.uint32(26)
-            w.string(obj.command)
-          }
-
-          if (obj.args != null) {
-            for (const value of obj.args) {
-              w.uint32(34)
-              w.string(value)
+        _codec = message<CommandRequest>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
             }
-          }
 
-          if ((obj.timestamp != null && obj.timestamp !== 0n)) {
-            w.uint32(40)
-            w.int64(obj.timestamp)
-          }
+            if (obj.requestId != null && obj.requestId !== '') {
+              w.uint32(10)
+              w.string(obj.requestId)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            requestId: '',
-            extensionId: '',
-            command: '',
-            args: [],
-            timestamp: 0n
-          }
+            if (obj.extensionId != null && obj.extensionId !== '') {
+              w.uint32(18)
+              w.string(obj.extensionId)
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            if (obj.command != null && obj.command !== '') {
+              w.uint32(26)
+              w.string(obj.command)
+            }
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
-
-            switch (tag >>> 3) {
-              case 1: {
-                obj.requestId = reader.string()
-                break
+            if (obj.args != null) {
+              for (const value of obj.args) {
+                w.uint32(34)
+                w.string(value)
               }
-              case 2: {
-                obj.extensionId = reader.string()
-                break
-              }
-              case 3: {
-                obj.command = reader.string()
-                break
-              }
-              case 4: {
-                if (opts.limits?.args != null && obj.args.length === opts.limits.args) {
-                  throw new MaxLengthError('Decode error - map field "args" had too many elements')
+            }
+
+            if (obj.timestamp != null && obj.timestamp !== 0n) {
+              w.uint32(40)
+              w.int64(obj.timestamp)
+            }
+
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              requestId: '',
+              extensionId: '',
+              command: '',
+              args: [],
+              timestamp: 0n,
+            }
+
+            const end = length == null ? reader.len : reader.pos + length
+
+            while (reader.pos < end) {
+              const tag = reader.uint32()
+
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.requestId = reader.string()
+                  break
                 }
+                case 2: {
+                  obj.extensionId = reader.string()
+                  break
+                }
+                case 3: {
+                  obj.command = reader.string()
+                  break
+                }
+                case 4: {
+                  if (opts.limits?.args != null && obj.args.length === opts.limits.args) {
+                    throw new MaxLengthError('Decode error - map field "args" had too many elements')
+                  }
 
-                obj.args.push(reader.string())
-                break
-              }
-              case 5: {
-                obj.timestamp = reader.int64()
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+                  obj.args.push(reader.string())
+                  break
+                }
+                case 5: {
+                  obj.timestamp = reader.int64()
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -675,81 +710,84 @@ export namespace ext {
 
     export const codec = (): Codec<CommandResponse> => {
       if (_codec == null) {
-        _codec = message<CommandResponse>((obj, w, opts = {}) => {
-          if (opts.lengthDelimited !== false) {
-            w.fork()
-          }
+        _codec = message<CommandResponse>(
+          (obj, w, opts = {}) => {
+            if (opts.lengthDelimited !== false) {
+              w.fork()
+            }
 
-          if ((obj.requestId != null && obj.requestId !== '')) {
-            w.uint32(10)
-            w.string(obj.requestId)
-          }
+            if (obj.requestId != null && obj.requestId !== '') {
+              w.uint32(10)
+              w.string(obj.requestId)
+            }
 
-          if ((obj.success != null && obj.success !== false)) {
-            w.uint32(16)
-            w.bool(obj.success)
-          }
+            if (obj.success != null && obj.success !== false) {
+              w.uint32(16)
+              w.bool(obj.success)
+            }
 
-          if (obj.data != null) {
-            w.uint32(26)
-            w.string(obj.data)
-          }
+            if (obj.data != null) {
+              w.uint32(26)
+              w.string(obj.data)
+            }
 
-          if (obj.error != null) {
-            w.uint32(34)
-            w.string(obj.error)
-          }
+            if (obj.error != null) {
+              w.uint32(34)
+              w.string(obj.error)
+            }
 
-          if ((obj.timestamp != null && obj.timestamp !== 0n)) {
-            w.uint32(40)
-            w.int64(obj.timestamp)
-          }
+            if (obj.timestamp != null && obj.timestamp !== 0n) {
+              w.uint32(40)
+              w.int64(obj.timestamp)
+            }
 
-          if (opts.lengthDelimited !== false) {
-            w.ldelim()
-          }
-        }, (reader, length, opts = {}) => {
-          const obj: any = {
-            requestId: '',
-            success: false,
-            timestamp: 0n
-          }
+            if (opts.lengthDelimited !== false) {
+              w.ldelim()
+            }
+          },
+          (reader, length, opts = {}) => {
+            const obj: any = {
+              requestId: '',
+              success: false,
+              timestamp: 0n,
+            }
 
-          const end = length == null ? reader.len : reader.pos + length
+            const end = length == null ? reader.len : reader.pos + length
 
-          while (reader.pos < end) {
-            const tag = reader.uint32()
+            while (reader.pos < end) {
+              const tag = reader.uint32()
 
-            switch (tag >>> 3) {
-              case 1: {
-                obj.requestId = reader.string()
-                break
-              }
-              case 2: {
-                obj.success = reader.bool()
-                break
-              }
-              case 3: {
-                obj.data = reader.string()
-                break
-              }
-              case 4: {
-                obj.error = reader.string()
-                break
-              }
-              case 5: {
-                obj.timestamp = reader.int64()
-                break
-              }
-              default: {
-                reader.skipType(tag & 7)
-                break
+              switch (tag >>> 3) {
+                case 1: {
+                  obj.requestId = reader.string()
+                  break
+                }
+                case 2: {
+                  obj.success = reader.bool()
+                  break
+                }
+                case 3: {
+                  obj.data = reader.string()
+                  break
+                }
+                case 4: {
+                  obj.error = reader.string()
+                  break
+                }
+                case 5: {
+                  obj.timestamp = reader.int64()
+                  break
+                }
+                default: {
+                  reader.skipType(tag & 7)
+                  break
+                }
               }
             }
-          }
 
-          return obj
-        })
+            return obj
+          },
+        )
       }
 
       return _codec
@@ -759,7 +797,10 @@ export namespace ext {
       return encodeMessage(obj, CommandResponse.codec())
     }
 
-    export const decode = (buf: Uint8Array | Uint8ArrayList, opts?: DecodeOptions<CommandResponse>): CommandResponse => {
+    export const decode = (
+      buf: Uint8Array | Uint8ArrayList,
+      opts?: DecodeOptions<CommandResponse>,
+    ): CommandResponse => {
       return decodeMessage(buf, CommandResponse.codec(), opts)
     }
   }
@@ -768,32 +809,35 @@ export namespace ext {
 
   export const codec = (): Codec<ext> => {
     if (_codec == null) {
-      _codec = message<ext>((obj, w, opts = {}) => {
-        if (opts.lengthDelimited !== false) {
-          w.fork()
-        }
+      _codec = message<ext>(
+        (obj, w, opts = {}) => {
+          if (opts.lengthDelimited !== false) {
+            w.fork()
+          }
 
-        if (opts.lengthDelimited !== false) {
-          w.ldelim()
-        }
-      }, (reader, length, opts = {}) => {
-        const obj: any = {}
+          if (opts.lengthDelimited !== false) {
+            w.ldelim()
+          }
+        },
+        (reader, length, opts = {}) => {
+          const obj: any = {}
 
-        const end = length == null ? reader.len : reader.pos + length
+          const end = length == null ? reader.len : reader.pos + length
 
-        while (reader.pos < end) {
-          const tag = reader.uint32()
+          while (reader.pos < end) {
+            const tag = reader.uint32()
 
-          switch (tag >>> 3) {
-            default: {
-              reader.skipType(tag & 7)
-              break
+            switch (tag >>> 3) {
+              default: {
+                reader.skipType(tag & 7)
+                break
+              }
             }
           }
-        }
 
-        return obj
-      })
+          return obj
+        },
+      )
     }
 
     return _codec

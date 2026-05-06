@@ -64,9 +64,7 @@ export function AppWrapper({ children }: WrapperProps) {
       <ExtensionContextProvider>
         <ChatProvider>
           <PeerProvider>
-            <ListenAddressesProvider>
-              {children}
-            </ListenAddressesProvider>
+            <ListenAddressesProvider>{children}</ListenAddressesProvider>
           </PeerProvider>
         </ChatProvider>
       </ExtensionContextProvider>

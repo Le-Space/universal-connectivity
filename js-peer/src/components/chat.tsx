@@ -3,19 +3,18 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { CHAT_FILE_TOPIC, CHAT_TOPIC } from '@/lib/constants'
 import { createIcon } from '@download/blockies'
 import { ChatFile, ChatMessage, useChatContext } from '../context/chat-ctx'
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from 'uuid'
 import { useExtensionContext } from '@/context/extension-ctx'
 import { isCommand, parseCommand, isValidCommand } from '@/lib/command-parser'
 import InstalledExtensions from './installed-extensions'
 import { ChatPeerList } from './chat-peer-list'
 import { peerIdFromString } from '@libp2p/peer-id'
 
-interface MessageProps extends ChatMessage { }
+interface MessageProps extends ChatMessage {}
 
 function Message({ msg, fileObjectUrl, from, peerId }: MessageProps) {
   const msgref = React.useRef<HTMLLIElement>(null)
   const { libp2p } = useLibp2pContext()
-
 
   useEffect(() => {
     const icon = createIcon({
@@ -33,14 +32,21 @@ function Message({ msg, fileObjectUrl, from, peerId }: MessageProps) {
 
   return (
     <li ref={msgref} className={`flex ${from === 'me' ? 'justify-end' : 'justify-start'}`}>
-      <div
-
-        className="flex relative max-w-xl px-4 py-2 text-gray-700 rounded shadow bg-white"
-      >
+      <div className="flex relative max-w-xl px-4 py-2 text-gray-700 rounded shadow bg-white">
         <div className="block whitespace-pre-wrap">
           {msg}
-          <p>{fileObjectUrl ? <a href={fileObjectUrl} target="_blank"><b>Download</b></a> : ""}</p>
-          <p className="italic text-gray-400">{peerId !== libp2p.peerId.toString() ? `from: ${peerId.slice(-4)}` : null} </p>
+          <p>
+            {fileObjectUrl ? (
+              <a href={fileObjectUrl} target="_blank">
+                <b>Download</b>
+              </a>
+            ) : (
+              ''
+            )}
+          </p>
+          <p className="italic text-gray-400">
+            {peerId !== libp2p.peerId.toString() ? `from: ${peerId.slice(-4)}` : null}{' '}
+          </p>
         </div>
       </div>
     </li>
@@ -49,66 +55,79 @@ function Message({ msg, fileObjectUrl, from, peerId }: MessageProps) {
 
 export default function ChatContainer() {
   const { libp2p } = useLibp2pContext()
-  const { messageHistory, setMessageHistory, files, setFiles, roomId, setRoomId, directMessages, setDirectMessages } = useChatContext();
-  const { executeCommand, isInstalled } = useExtensionContext();
+  const { messageHistory, setMessageHistory, files, setFiles, roomId, setRoomId, directMessages, setDirectMessages } =
+    useChatContext()
+  const { executeCommand, isInstalled } = useExtensionContext()
   const [input, setInput] = useState<string>('')
-  const fileRef = useRef<HTMLInputElement>(null);
-  
+  const fileRef = useRef<HTMLInputElement>(null)
+
   const isPrivateChat = roomId !== ''
-  const privateMessages = isPrivateChat ? (directMessages[roomId] || []) : []
+  const privateMessages = isPrivateChat ? directMessages[roomId] || [] : []
 
   // Handle extension icon click - send help command
-  const handleExtensionClick = useCallback(async (extensionId: string) => {
-    const helpCommand = `/${extensionId}-help`
-    const myPeerId = libp2p.peerId.toString()
+  const handleExtensionClick = useCallback(
+    async (extensionId: string) => {
+      const helpCommand = `/${extensionId}-help`
+      const myPeerId = libp2p.peerId.toString()
 
-    // Show command in chat
-    setMessageHistory(prev => [...prev, {
-      msgId: uuidv4(),
-      msg: helpCommand,
-      fileObjectUrl: undefined,
-      from: 'me',
-      peerId: myPeerId,
-      read: false,
-      receivedAt: Date.now(),
-    }])
+      // Show command in chat
+      setMessageHistory((prev) => [
+        ...prev,
+        {
+          msgId: uuidv4(),
+          msg: helpCommand,
+          fileObjectUrl: undefined,
+          from: 'me',
+          peerId: myPeerId,
+          read: false,
+          receivedAt: Date.now(),
+        },
+      ])
 
-    // Execute help command
-    try {
-      const response = await executeCommand(extensionId, 'help', [])
-      
-      let responseMsg: string
-      if (response.success) {
-        if (response.data?.help) {
-          responseMsg = `✅\n${response.data.help}`
+      // Execute help command
+      try {
+        const response = await executeCommand(extensionId, 'help', [])
+
+        let responseMsg: string
+        if (response.success) {
+          if (response.data?.help) {
+            responseMsg = `✅\n${response.data.help}`
+          } else {
+            responseMsg = `✅ ${JSON.stringify(response.data, null, 2)}`
+          }
         } else {
-          responseMsg = `✅ ${JSON.stringify(response.data, null, 2)}`
+          responseMsg = `❌ Error: ${response.error}`
         }
-      } else {
-        responseMsg = `❌ Error: ${response.error}`
+
+        setMessageHistory((prev) => [
+          ...prev,
+          {
+            msgId: uuidv4(),
+            msg: responseMsg,
+            fileObjectUrl: undefined,
+            from: 'extension',
+            peerId: extensionId,
+            read: false,
+            receivedAt: Date.now(),
+          },
+        ])
+      } catch (error: any) {
+        setMessageHistory((prev) => [
+          ...prev,
+          {
+            msgId: uuidv4(),
+            msg: `❌ Command failed: ${error.message}`,
+            fileObjectUrl: undefined,
+            from: 'system',
+            peerId: 'system',
+            read: false,
+            receivedAt: Date.now(),
+          },
+        ])
       }
-      
-      setMessageHistory(prev => [...prev, {
-        msgId: uuidv4(),
-        msg: responseMsg,
-        fileObjectUrl: undefined,
-        from: 'extension',
-        peerId: extensionId,
-        read: false,
-        receivedAt: Date.now(),
-      }])
-    } catch (error: any) {
-      setMessageHistory(prev => [...prev, {
-        msgId: uuidv4(),
-        msg: `❌ Command failed: ${error.message}`,
-        fileObjectUrl: undefined,
-        from: 'system',
-        peerId: 'system',
-        read: false,
-        receivedAt: Date.now(),
-      }])
-    }
-  }, [libp2p, setMessageHistory, executeCommand])
+    },
+    [libp2p, setMessageHistory, executeCommand],
+  )
 
   const sendMessage = useCallback(async () => {
     if (input === '') return
@@ -118,52 +137,61 @@ export default function ChatContainer() {
     // Check if input is an extension command
     if (isCommand(input)) {
       const parsed = parseCommand(input)
-      
+
       if (!isValidCommand(parsed)) {
         // Show error message in chat
-        setMessageHistory([...messageHistory, {
-          msgId: uuidv4(),
-          msg: `❌ Invalid command syntax. Commands should be like: /extension-command args`,
-          fileObjectUrl: undefined,
-          from: 'system',
-          peerId: 'system',
-          read: false,
-          receivedAt: Date.now(),
-        }])
+        setMessageHistory([
+          ...messageHistory,
+          {
+            msgId: uuidv4(),
+            msg: `❌ Invalid command syntax. Commands should be like: /extension-command args`,
+            fileObjectUrl: undefined,
+            from: 'system',
+            peerId: 'system',
+            read: false,
+            receivedAt: Date.now(),
+          },
+        ])
         setInput('')
         return
       }
 
       // Check if extension is installed
       if (!isInstalled(parsed.extensionId)) {
-        setMessageHistory([...messageHistory, {
-          msgId: uuidv4(),
-          msg: `❌ Extension '${parsed.extensionId}' is not installed`,
-          fileObjectUrl: undefined,
-          from: 'system',
-          peerId: 'system',
-          read: false,
-          receivedAt: Date.now(),
-        }])
+        setMessageHistory([
+          ...messageHistory,
+          {
+            msgId: uuidv4(),
+            msg: `❌ Extension '${parsed.extensionId}' is not installed`,
+            fileObjectUrl: undefined,
+            from: 'system',
+            peerId: 'system',
+            read: false,
+            receivedAt: Date.now(),
+          },
+        ])
         setInput('')
         return
       }
 
       // Show command in chat
-      setMessageHistory([...messageHistory, {
-        msgId: uuidv4(),
-        msg: input,
-        fileObjectUrl: undefined,
-        from: 'me',
-        peerId: myPeerId,
-        read: false,
-        receivedAt: Date.now(),
-      }])
+      setMessageHistory([
+        ...messageHistory,
+        {
+          msgId: uuidv4(),
+          msg: input,
+          fileObjectUrl: undefined,
+          from: 'me',
+          peerId: myPeerId,
+          read: false,
+          receivedAt: Date.now(),
+        },
+      ])
 
       // Execute command
       try {
         const response = await executeCommand(parsed.extensionId, parsed.command, parsed.args)
-        
+
         // Show response in chat
         let responseMsg: string
         if (response.success) {
@@ -176,28 +204,34 @@ export default function ChatContainer() {
         } else {
           responseMsg = `❌ Error: ${response.error}`
         }
-        
-        setMessageHistory(prev => [...prev, {
-          msgId: uuidv4(),
-          msg: responseMsg,
-          fileObjectUrl: undefined,
-          from: 'extension',
-          peerId: parsed.extensionId,
-          read: false,
-          receivedAt: Date.now(),
-        }])
+
+        setMessageHistory((prev) => [
+          ...prev,
+          {
+            msgId: uuidv4(),
+            msg: responseMsg,
+            fileObjectUrl: undefined,
+            from: 'extension',
+            peerId: parsed.extensionId,
+            read: false,
+            receivedAt: Date.now(),
+          },
+        ])
       } catch (error: any) {
-        setMessageHistory(prev => [...prev, {
-          msgId: uuidv4(),
-          msg: `❌ Command failed: ${error.message}`,
-          fileObjectUrl: undefined,
-          from: 'system',
-          peerId: 'system',
-          read: false,
-          receivedAt: Date.now(),
-        }])
+        setMessageHistory((prev) => [
+          ...prev,
+          {
+            msgId: uuidv4(),
+            msg: `❌ Command failed: ${error.message}`,
+            fileObjectUrl: undefined,
+            from: 'system',
+            peerId: 'system',
+            read: false,
+            receivedAt: Date.now(),
+          },
+        ])
       }
-      
+
       setInput('')
       return
     }
@@ -208,7 +242,7 @@ export default function ChatContainer() {
       try {
         const targetPeerId = peerIdFromString(roomId)
         await libp2p.services.directMessage.send(targetPeerId, input)
-        
+
         // Add to direct messages
         const newMsg: ChatMessage = {
           msgId: uuidv4(),
@@ -219,12 +253,12 @@ export default function ChatContainer() {
           read: false,
           receivedAt: Date.now(),
         }
-        
-        setDirectMessages(prev => ({
+
+        setDirectMessages((prev) => ({
           ...prev,
-          [roomId]: [...(prev[roomId] || []), newMsg]
+          [roomId]: [...(prev[roomId] || []), newMsg],
         }))
-        
+
         setInput('')
       } catch (error: any) {
         console.error('Failed to send direct message:', error)
@@ -237,56 +271,75 @@ export default function ChatContainer() {
         libp2p.services.pubsub.getSubscribers(CHAT_TOPIC).toString(),
       )
 
-      const res = await libp2p.services.pubsub.publish(
-        CHAT_TOPIC,
-        new TextEncoder().encode(input),
-      )
+      const res = await libp2p.services.pubsub.publish(CHAT_TOPIC, new TextEncoder().encode(input))
       console.log(
         'sent message to: ',
         res.recipients.map((peerId) => peerId.toString()),
       )
 
-      setMessageHistory([...messageHistory, { msgId: uuidv4(), msg: input, fileObjectUrl: undefined, from: 'me', peerId: myPeerId, read: false, receivedAt: Date.now() }])
+      setMessageHistory([
+        ...messageHistory,
+        {
+          msgId: uuidv4(),
+          msg: input,
+          fileObjectUrl: undefined,
+          from: 'me',
+          peerId: myPeerId,
+          read: false,
+          receivedAt: Date.now(),
+        },
+      ])
       setInput('')
     }
-  }, [input, messageHistory, setInput, libp2p, setMessageHistory, executeCommand, isInstalled, isPrivateChat, roomId, setDirectMessages])
+  }, [
+    input,
+    messageHistory,
+    setInput,
+    libp2p,
+    setMessageHistory,
+    executeCommand,
+    isInstalled,
+    isPrivateChat,
+    roomId,
+    setDirectMessages,
+  ])
 
-  const sendFile = useCallback(async (readerEvent: ProgressEvent<FileReader>) => {
-    const fileBody = readerEvent.target?.result as ArrayBuffer;
+  const sendFile = useCallback(
+    async (readerEvent: ProgressEvent<FileReader>) => {
+      const fileBody = readerEvent.target?.result as ArrayBuffer
 
-    const myPeerId = libp2p.peerId.toString()
-    const file: ChatFile = {
-      id: uuidv4(),
-      body: new Uint8Array(fileBody),
-      sender: myPeerId,
-    }
-    setFiles(files.set(file.id, file))
+      const myPeerId = libp2p.peerId.toString()
+      const file: ChatFile = {
+        id: uuidv4(),
+        body: new Uint8Array(fileBody),
+        sender: myPeerId,
+      }
+      setFiles(files.set(file.id, file))
 
-    console.log(
-      `peers in gossip for topic ${CHAT_FILE_TOPIC}:`,
-      libp2p.services.pubsub.getSubscribers(CHAT_FILE_TOPIC).toString(),
-    )
+      console.log(
+        `peers in gossip for topic ${CHAT_FILE_TOPIC}:`,
+        libp2p.services.pubsub.getSubscribers(CHAT_FILE_TOPIC).toString(),
+      )
 
-    const res = await libp2p.services.pubsub.publish(
-      CHAT_FILE_TOPIC,
-      new TextEncoder().encode(file.id)
-    )
-    console.log(
-      'sent file to: ',
-      res.recipients.map((peerId) => peerId.toString()),
-    )
+      const res = await libp2p.services.pubsub.publish(CHAT_FILE_TOPIC, new TextEncoder().encode(file.id))
+      console.log(
+        'sent file to: ',
+        res.recipients.map((peerId) => peerId.toString()),
+      )
 
-    const msg: ChatMessage = {
-      msgId: uuidv4(),
-      msg: newChatFileMessage(file.id, file.body),
-      fileObjectUrl: window.URL.createObjectURL(new Blob([file.body])),
-      from: 'me',
-      peerId: myPeerId,
-      read: false,
-      receivedAt: Date.now(),
-    }
-    setMessageHistory([...messageHistory, msg])
-  }, [messageHistory, libp2p, setMessageHistory, files, setFiles])
+      const msg: ChatMessage = {
+        msgId: uuidv4(),
+        msg: newChatFileMessage(file.id, file.body),
+        fileObjectUrl: window.URL.createObjectURL(new Blob([file.body])),
+        from: 'me',
+        peerId: myPeerId,
+        read: false,
+        receivedAt: Date.now(),
+      }
+      setMessageHistory([...messageHistory, msg])
+    },
+    [messageHistory, libp2p, setMessageHistory, files, setFiles],
+  )
 
   const newChatFileMessage = (id: string, body: Uint8Array) => {
     return `File: ${id} (${body.length} bytes)`
@@ -319,11 +372,11 @@ export default function ChatContainer() {
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files) {
-        const reader = new FileReader();
-        reader.readAsArrayBuffer(e.target.files[0]);
+        const reader = new FileReader()
+        reader.readAsArrayBuffer(e.target.files[0])
         reader.onload = (readerEvent) => {
           sendFile(readerEvent)
-        };
+        }
       }
     },
     [sendFile],
@@ -331,7 +384,7 @@ export default function ChatContainer() {
 
   const handleFileSend = useCallback(
     async (_e: React.MouseEvent<HTMLButtonElement>) => {
-      fileRef?.current?.click();
+      fileRef?.current?.click()
     },
     [fileRef],
   )
@@ -341,7 +394,9 @@ export default function ChatContainer() {
       <div className="min-w-full border rounded lg:grid lg:grid-cols-3">
         <div className="lg:col-span-2 lg:block">
           <div className="w-full">
-            <div className={`relative flex items-center p-3 border-b border-gray-300 ${isPrivateChat ? 'bg-green-50 border-green-200' : ''}`}>
+            <div
+              className={`relative flex items-center p-3 border-b border-gray-300 ${isPrivateChat ? 'bg-green-50 border-green-200' : ''}`}
+            >
               {isPrivateChat && (
                 <button
                   onClick={() => setRoomId('')}
@@ -361,12 +416,8 @@ export default function ChatContainer() {
               <ul className="space-y-2">
                 {/* messages start */}
                 {isPrivateChat
-                  ? privateMessages.map((message, idx) => (
-                      <Message key={idx} {...message} />
-                    ))
-                  : messageHistory.map((message, idx) => (
-                      <Message key={idx} {...message} />
-                    ))}
+                  ? privateMessages.map((message, idx) => <Message key={idx} {...message} />)
+                  : messageHistory.map((message, idx) => <Message key={idx} {...message} />)}
                 {/* messages end */}
               </ul>
             </div>
@@ -484,19 +535,11 @@ export function RoomList() {
         <h2 className="my-2 mb-2 ml-2 text-lg text-gray-600">Chats</h2>
         <li>
           <a className="flex items-center px-3 py-2 text-sm transition duration-150 ease-in-out border-b border-gray-300 cursor-pointer hover:bg-gray-100 focus:outline-none">
-            <img
-              className="object-cover w-10 h-10 rounded-full"
-              src="https://github.com/2color.png"
-              alt="username"
-            />
+            <img className="object-cover w-10 h-10 rounded-full" src="https://github.com/2color.png" alt="username" />
             <div className="w-full pb-2">
               <div className="flex justify-between">
-                <span className="block ml-2 font-semibold text-gray-600">
-                  Daniel
-                </span>
-                <span className="block ml-2 text-sm text-gray-600">
-                  25 minutes
-                </span>
+                <span className="block ml-2 font-semibold text-gray-600">Daniel</span>
+                <span className="block ml-2 text-sm text-gray-600">25 minutes</span>
               </div>
               <span className="block ml-2 text-sm text-gray-600">bye</span>
             </div>
@@ -509,16 +552,10 @@ export function RoomList() {
             />
             <div className="w-full pb-2">
               <div className="flex justify-between">
-                <span className="block ml-2 font-semibold text-gray-600">
-                  Alex
-                </span>
-                <span className="block ml-2 text-sm text-gray-600">
-                  50 minutes
-                </span>
+                <span className="block ml-2 font-semibold text-gray-600">Alex</span>
+                <span className="block ml-2 text-sm text-gray-600">50 minutes</span>
               </div>
-              <span className="block ml-2 text-sm text-gray-600">
-                Good night
-              </span>
+              <span className="block ml-2 text-sm text-gray-600">Good night</span>
             </div>
           </a>
           <a className="flex items-center px-3 py-2 text-sm transition duration-150 ease-in-out border-b border-gray-300 cursor-pointer hover:bg-gray-100 focus:outline-none">
@@ -529,14 +566,10 @@ export function RoomList() {
             />
             <div className="w-full pb-2">
               <div className="flex justify-between">
-                <span className="block ml-2 font-semibold text-gray-600">
-                  Hannah
-                </span>
+                <span className="block ml-2 font-semibold text-gray-600">Hannah</span>
                 <span className="block ml-2 text-sm text-gray-600">6 hour</span>
               </div>
-              <span className="block ml-2 text-sm text-gray-600">
-                Good Morning
-              </span>
+              <span className="block ml-2 text-sm text-gray-600">Good Morning</span>
             </div>
           </a>
         </li>

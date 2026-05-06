@@ -17,9 +17,9 @@ export function ChatPeerList({ hideHeader = false }: ChatPeerListProps) {
     // Track both subscribers and message senders
     const updatePeers = () => {
       const subscribers = libp2p.services.pubsub.getSubscribers(CHAT_TOPIC) as PeerId[]
-      setPeers(prev => {
+      setPeers((prev) => {
         const updated = new Set(prev)
-        subscribers.forEach(peer => updated.add(peer.toString()))
+        subscribers.forEach((peer) => updated.add(peer.toString()))
         return updated
       })
     }
@@ -27,7 +27,7 @@ export function ChatPeerList({ hideHeader = false }: ChatPeerListProps) {
     const onMessage = (evt: CustomEvent<Message>) => {
       if (evt.detail.topic === CHAT_TOPIC && evt.detail.type === 'signed') {
         const senderId = evt.detail.from.toString()
-        setPeers(prev => {
+        setPeers((prev) => {
           if (!prev.has(senderId)) {
             const updated = new Set(prev)
             updated.add(senderId)
@@ -41,7 +41,7 @@ export function ChatPeerList({ hideHeader = false }: ChatPeerListProps) {
     updatePeers()
     libp2p.services.pubsub.addEventListener('subscription-change', updatePeers)
     libp2p.services.pubsub.addEventListener('message', onMessage)
-    
+
     return () => {
       libp2p.services.pubsub.removeEventListener('subscription-change', updatePeers)
       libp2p.services.pubsub.removeEventListener('message', onMessage)
@@ -49,7 +49,7 @@ export function ChatPeerList({ hideHeader = false }: ChatPeerListProps) {
   }, [libp2p])
 
   const peerList = Array.from(peers)
-    .filter(peerId => peerId !== libp2p.peerId.toString())
+    .filter((peerId) => peerId !== libp2p.peerId.toString())
     .sort()
 
   return (

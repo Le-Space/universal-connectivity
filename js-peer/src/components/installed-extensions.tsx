@@ -33,16 +33,14 @@ export default function InstalledExtensions({ onExtensionClick }: InstalledExten
               }}
             />
           ) : null}
-          <span className={`text-sm ${ext.manifest.icon ? 'hidden' : ''}`}>
-            📦
-          </span>
-          
+          <span className={`text-sm ${ext.manifest.icon ? 'hidden' : ''}`}>📦</span>
+
           {/* Tooltip - positioned below */}
           <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 bg-gray-800 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
             {ext.manifest.name} - Click for help
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-4 border-transparent border-b-gray-800"></div>
           </div>
-          
+
           {/* Enabled indicator */}
           {ext.enabled && (
             <span className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full border border-white"></span>

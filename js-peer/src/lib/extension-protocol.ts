@@ -4,15 +4,13 @@ import { v4 as uuidv4 } from 'uuid'
 import { pbStream } from 'it-protobuf-stream'
 import { ExtensionManager } from './extension-manager'
 import { ext } from './protobuf/extension'
-import {
-  getExtensionProtocol,
-} from './extension-types'
+import { getExtensionProtocol } from './extension-types'
 
 const COMMAND_TIMEOUT = 5000 // 5 seconds
 
 /**
  * Extension command protocol - handles command execution via direct libp2p streams
- * 
+ *
  * Uses the same pattern as direct-message.ts for clean stream handling
  * Tries each known peer in order (last successful first) until one responds
  */
@@ -46,16 +44,16 @@ export class ExtensionProtocol {
   async executeCommand(
     extensionId: string,
     command: string,
-    args: string[]
+    args: string[],
   ): Promise<{ success: boolean; data?: any; error?: string }> {
     const extension = this.extensionManager.getExtension(extensionId)
-    
+
     if (!extension) {
       throw new Error(`Extension '${extensionId}' is not installed`)
     }
 
     const peerIds = this.extensionManager.getExtensionPeers(extensionId)
-    
+
     if (peerIds.length === 0) {
       throw new Error(`No peers available for extension '${extensionId}'`)
     }
@@ -68,11 +66,11 @@ export class ExtensionProtocol {
       try {
         console.log(`🔗 Trying peer ${peerId.slice(-8)} for /${extensionId}-${command}`)
         const response = await this.executeOnPeer(peerId, protocol, extensionId, command, args)
-        
+
         // Mark this peer as successful
         this.extensionManager.markPeerSuccess(extensionId, peerId)
         console.log(`✅ Command response from peer ${peerId.slice(-8)}`)
-        
+
         return response
       } catch (error: any) {
         console.warn(`❌ Peer ${peerId.slice(-8)} failed:`, error.message)
@@ -94,7 +92,7 @@ export class ExtensionProtocol {
     protocol: string,
     extensionId: string,
     command: string,
-    args: string[]
+    args: string[],
   ): Promise<{ success: boolean; data?: any; error?: string }> {
     const pId = peerIdFromString(peerId)
     const stream = await this.libp2p.dialProtocol(pId, protocol)
@@ -112,7 +110,7 @@ export class ExtensionProtocol {
           command,
           args,
           timestamp: BigInt(Date.now()),
-        }
+        },
       }
 
       // Send request
@@ -128,9 +126,9 @@ export class ExtensionProtocol {
         // @ts-ignore
         payload: response.payload,
         hasCommand: !!response.command,
-        responseKeys: Object.keys(response)
+        responseKeys: Object.keys(response),
       })
-      
+
       // Check if it's a command response
       // Note: Some implementations don't send the payload field
       // @ts-ignore
@@ -145,7 +143,7 @@ export class ExtensionProtocol {
           throw new Error(response.command.error || 'Command failed')
         }
       }
-      
+
       throw new Error('Invalid response')
     } finally {
       try {

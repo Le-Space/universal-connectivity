@@ -4,12 +4,7 @@ import { peerIdFromString } from '@libp2p/peer-id'
 import { pbStream } from 'it-protobuf-stream'
 import { EXTENSION_PROTOCOL_PREFIX } from './constants'
 import { ext } from './protobuf/extension'
-import {
-  ExtensionManifest,
-  ExtensionOffer,
-  InstalledExtension,
-  parseExtensionProtocol,
-} from './extension-types'
+import { ExtensionManifest, ExtensionOffer, InstalledExtension, parseExtensionProtocol } from './extension-types'
 
 const STORAGE_KEY = 'uc-installed-extensions'
 const MANIFEST_TIMEOUT = 5000 // 5 seconds
@@ -116,7 +111,7 @@ export class ExtensionManager {
     // Fetch manifest from this peer
     try {
       const manifest = await this.fetchManifest(peerId, protocol)
-      
+
       if (!this.isValidManifest(manifest)) {
         console.warn(`ExtensionManager: Invalid manifest from ${peerId.slice(-8)} for ${extensionId}`)
         return
@@ -152,7 +147,7 @@ export class ExtensionManager {
         payload: 'manifest',
         manifest: {
           timestamp: BigInt(Date.now()),
-        }
+        },
       }
 
       // Send request
@@ -170,27 +165,25 @@ export class ExtensionManager {
         payload: response.payload,
         hasManifest: !!response.manifest,
         manifestKeys: response.manifest ? Object.keys(response.manifest) : [],
-        hasNestedManifest: !!(response.manifest?.manifest),
+        hasNestedManifest: !!response.manifest?.manifest,
         responseKeys: Object.keys(response),
-        fullResponse: JSON.stringify(response, (key, value) =>
-          typeof value === 'bigint' ? value.toString() : value
-        )
+        fullResponse: JSON.stringify(response, (key, value) => (typeof value === 'bigint' ? value.toString() : value)),
       })
-      
+
       // Check if it's a manifest response
       // Note: Some implementations don't send the payload field, so we check for manifest presence
       // @ts-ignore
       if ((response.payload === 'manifest' || !response.payload) && response.manifest?.manifest) {
         const manifestData = response.manifest.manifest
-        
+
         console.log(`🔍 Manifest data:`, {
           id: manifestData.id,
           name: manifestData.name,
           version: manifestData.version,
           hasCommands: !!manifestData.commands,
-          commandsLength: manifestData.commands?.length
+          commandsLength: manifestData.commands?.length,
         })
-        
+
         // Convert protobuf manifest to our ExtensionManifest type
         const converted = {
           id: manifestData.id || '',
@@ -200,17 +193,17 @@ export class ExtensionManager {
           author: manifestData.author || '',
           publicUrl: manifestData.publicUrl || '',
           icon: manifestData.icon || '',
-          commands: (manifestData.commands || []).map(cmd => ({
+          commands: (manifestData.commands || []).map((cmd) => ({
             name: cmd.name || '',
             syntax: cmd.syntax || '',
             description: cmd.description || '',
           })),
         }
-        
+
         console.log(`✅ Manifest converted successfully:`, converted)
         return converted
       }
-      
+
       console.error(`❌ Invalid manifest response structure`)
       throw new Error('Invalid manifest response')
     } finally {
@@ -254,8 +247,7 @@ export class ExtensionManager {
    * Get all available extension offers
    */
   getAvailableOffers(): ExtensionOffer[] {
-    return Array.from(this.offers.values())
-      .sort((a, b) => b.timestamp - a.timestamp)
+    return Array.from(this.offers.values()).sort((a, b) => b.timestamp - a.timestamp)
   }
 
   /**
@@ -263,7 +255,7 @@ export class ExtensionManager {
    */
   installExtension(extensionId: string): boolean {
     const offer = this.offers.get(extensionId)
-    
+
     if (!offer) {
       console.error(`Extension ${extensionId} not found in offers`)
       return false
@@ -283,10 +275,10 @@ export class ExtensionManager {
 
     this.installed.set(extensionId, installedExtension)
     this.saveInstalledToStorage()
-    
+
     // Remove from offers
     this.offers.delete(extensionId)
-    
+
     console.log(`✅ Installed extension: ${offer.manifest.name} with ${offer.peerIds.length} peer(s)`)
     this.notifyListeners()
     return true
@@ -303,7 +295,7 @@ export class ExtensionManager {
 
     this.installed.delete(extensionId)
     this.saveInstalledToStorage()
-    
+
     console.log(`🗑️  Uninstalled extension: ${extensionId}`)
     this.notifyListeners()
     return true
@@ -340,9 +332,9 @@ export class ExtensionManager {
     // Ensure peerIds is an array (defensive for old storage format)
     const peerIds = Array.isArray(ext.peerIds) ? ext.peerIds : []
     const lastSuccessfulPeerId = ext.lastSuccessfulPeerId
-    
+
     if (lastSuccessfulPeerId && peerIds.includes(lastSuccessfulPeerId)) {
-      return [lastSuccessfulPeerId, ...peerIds.filter(p => p !== lastSuccessfulPeerId)]
+      return [lastSuccessfulPeerId, ...peerIds.filter((p) => p !== lastSuccessfulPeerId)]
     }
     return [...peerIds]
   }
@@ -364,7 +356,7 @@ export class ExtensionManager {
   removePeer(extensionId: string, peerId: string): void {
     const ext = this.installed.get(extensionId)
     if (ext) {
-      ext.peerIds = ext.peerIds.filter(p => p !== peerId)
+      ext.peerIds = ext.peerIds.filter((p) => p !== peerId)
       if (ext.lastSuccessfulPeerId === peerId) {
         ext.lastSuccessfulPeerId = undefined
       }
@@ -373,7 +365,7 @@ export class ExtensionManager {
 
     const offer = this.offers.get(extensionId)
     if (offer) {
-      offer.peerIds = offer.peerIds.filter(p => p !== peerId)
+      offer.peerIds = offer.peerIds.filter((p) => p !== peerId)
       if (offer.peerIds.length === 0) {
         this.offers.delete(extensionId)
       }
@@ -386,7 +378,7 @@ export class ExtensionManager {
    */
   setExtensionEnabled(extensionId: string, enabled: boolean): boolean {
     const extension = this.installed.get(extensionId)
-    
+
     if (!extension) {
       console.warn(`Extension ${extensionId} is not installed`)
       return false
@@ -417,14 +409,14 @@ export class ExtensionManager {
       }
 
       const data: Array<[string, InstalledExtension]> = JSON.parse(stored)
-      
+
       // Migrate old format: ensure peerIds is always an array
       for (const [, ext] of data) {
         if (!Array.isArray(ext.peerIds)) {
           ext.peerIds = []
         }
       }
-      
+
       this.installed = new Map(data)
       console.log(`📦 Loaded ${this.installed.size} installed extension(s)`)
     } catch (error) {
@@ -458,7 +450,7 @@ export class ExtensionManager {
    * Notify all listeners of changes
    */
   private notifyListeners(): void {
-    this.listeners.forEach(listener => {
+    this.listeners.forEach((listener) => {
       try {
         listener()
       } catch (error) {

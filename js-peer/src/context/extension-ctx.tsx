@@ -2,10 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useLibp2pContext } from './ctx'
 import { ExtensionManager } from '@/lib/extension-manager'
 import { ExtensionProtocol } from '@/lib/extension-protocol'
-import {
-  ExtensionOffer,
-  InstalledExtension,
-} from '@/lib/extension-types'
+import { ExtensionOffer, InstalledExtension } from '@/lib/extension-types'
 
 interface ExtensionContextType {
   manager: ExtensionManager | null
@@ -16,7 +13,11 @@ interface ExtensionContextType {
   uninstallExtension: (extensionId: string) => boolean
   setExtensionEnabled: (extensionId: string, enabled: boolean) => boolean
   dismissOffer: (extensionId: string) => void
-  executeCommand: (extensionId: string, command: string, args: string[]) => Promise<{ success: boolean; data?: any; error?: string }>
+  executeCommand: (
+    extensionId: string,
+    command: string,
+    args: string[],
+  ) => Promise<{ success: boolean; data?: any; error?: string }>
   isInstalled: (extensionId: string) => boolean
 }
 
@@ -81,47 +82,65 @@ export function ExtensionContextProvider({ children }: ExtensionContextProviderP
     }
 
     const cleanup = initializeExtensions()
-    
+
     return () => {
-      cleanup.then(fn => fn?.())
+      cleanup.then((fn) => fn?.())
     }
   }, [libp2p])
 
-  const installExtension = useCallback((extensionId: string) => {
-    if (!manager) return false
-    return manager.installExtension(extensionId)
-  }, [manager])
+  const installExtension = useCallback(
+    (extensionId: string) => {
+      if (!manager) return false
+      return manager.installExtension(extensionId)
+    },
+    [manager],
+  )
 
-  const uninstallExtension = useCallback((extensionId: string) => {
-    if (!manager) return false
-    return manager.uninstallExtension(extensionId)
-  }, [manager])
+  const uninstallExtension = useCallback(
+    (extensionId: string) => {
+      if (!manager) return false
+      return manager.uninstallExtension(extensionId)
+    },
+    [manager],
+  )
 
-  const setExtensionEnabled = useCallback((extensionId: string, enabled: boolean) => {
-    if (!manager) return false
-    return manager.setExtensionEnabled(extensionId, enabled)
-  }, [manager])
+  const setExtensionEnabled = useCallback(
+    (extensionId: string, enabled: boolean) => {
+      if (!manager) return false
+      return manager.setExtensionEnabled(extensionId, enabled)
+    },
+    [manager],
+  )
 
-  const dismissOffer = useCallback((extensionId: string) => {
-    if (!manager) return
-    manager.dismissOffer(extensionId)
-  }, [manager])
+  const dismissOffer = useCallback(
+    (extensionId: string) => {
+      if (!manager) return
+      manager.dismissOffer(extensionId)
+    },
+    [manager],
+  )
 
-  const executeCommand = useCallback(async (
-    extensionId: string,
-    command: string,
-    args: string[]
-  ): Promise<{ success: boolean; data?: any; error?: string }> => {
-    if (!protocol) {
-      throw new Error('Extension protocol not initialized')
-    }
-    return protocol.executeCommand(extensionId, command, args)
-  }, [protocol])
+  const executeCommand = useCallback(
+    async (
+      extensionId: string,
+      command: string,
+      args: string[],
+    ): Promise<{ success: boolean; data?: any; error?: string }> => {
+      if (!protocol) {
+        throw new Error('Extension protocol not initialized')
+      }
+      return protocol.executeCommand(extensionId, command, args)
+    },
+    [protocol],
+  )
 
-  const isInstalled = useCallback((extensionId: string): boolean => {
-    if (!manager) return false
-    return manager.isInstalled(extensionId)
-  }, [manager])
+  const isInstalled = useCallback(
+    (extensionId: string): boolean => {
+      if (!manager) return false
+      return manager.isInstalled(extensionId)
+    },
+    [manager],
+  )
 
   const value: ExtensionContextType = {
     manager,
@@ -136,9 +155,5 @@ export function ExtensionContextProvider({ children }: ExtensionContextProviderP
     isInstalled,
   }
 
-  return (
-    <ExtensionContext.Provider value={value}>
-      {children}
-    </ExtensionContext.Provider>
-  )
+  return <ExtensionContext.Provider value={value}>{children}</ExtensionContext.Provider>
 }
