@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'js-peer/**' # only run for PRs changing js-peer
+      - '.github/workflows/js-peer.yml' # also validate workflow-only changes
 
 jobs:
   build-and-deploy:
