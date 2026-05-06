@@ -29,6 +29,20 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+      - name: Debug Aleph inputs
+        run: |
+          if [[ -n "$ALEPH_PRIVATE_KEY" ]]; then
+            echo "ALEPH_PRIVATE_KEY is set"
+          else
+            echo "ALEPH_PRIVATE_KEY is missing"
+          fi
+          if [[ -n "${{ vars.ALEPH_DOMAIN }}" ]]; then
+            echo "ALEPH_DOMAIN=${{ vars.ALEPH_DOMAIN }}"
+          else
+            echo "ALEPH_DOMAIN is missing"
+          fi
+          echo "github.event_name=${{ github.event_name }}"
+          echo "github.ref=${{ github.ref }}"
       - name: Deploy preview on Aleph
         id: deploy
         if: github.event_name == 'pull_request'
