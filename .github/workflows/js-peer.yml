@@ -7,7 +7,9 @@ permissions:
 
 on:
   push:
-    branches: [main] # Deploy every commit so we can CIDs for every commit on main
+    paths:
+      - 'js-peer/**'
+      - '.github/workflows/js-peer.yml'
   pull_request:
     branches: [main]
     paths:
