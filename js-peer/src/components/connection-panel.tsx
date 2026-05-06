@@ -41,10 +41,21 @@ export default function ConnectionPanel({ isOpen, onClose }: { isOpen: boolean; 
   }, [libp2p, setConnections])
 
   useEffect(() => {
+    const syncListenAddresses = () => {
+      setListenAddresses(libp2p.getMultiaddrs())
+    }
+
     const onPeerUpdate = (evt: CustomEvent<PeerUpdate>) => {
       const maddrs = evt.detail.peer.addresses?.map((p) => p.multiaddr)
-      setListenAddresses(maddrs ?? [])
+      if ((maddrs?.length ?? 0) > 0) {
+        setListenAddresses(maddrs ?? [])
+        return
+      }
+
+      syncListenAddresses()
     }
+
+    syncListenAddresses()
     libp2p.addEventListener('self:peer:update', onPeerUpdate)
 
     return () => {
