@@ -26,10 +26,37 @@ export default function ConnectionPanel({ isOpen, onClose }: { isOpen: boolean; 
   const [copiedAddress, setCopiedAddress] = useState<number | null>(null)
   const [copiedPeerId, setCopiedPeerId] = useState(false)
 
+  const resolveListenAddresses = useCallback(() => {
+    const selfMultiaddrs = libp2p.getMultiaddrs()
+    if (selfMultiaddrs.length > 0) {
+      setListenAddresses(selfMultiaddrs)
+      return
+    }
+
+    const derived = new Map<string, Multiaddr>()
+    for (const connection of libp2p.getConnections()) {
+      const protos = connection.remoteAddr.protoNames()
+      if (!protos.includes('p2p') || protos.includes('p2p-circuit')) {
+        continue
+      }
+
+      const relayAddress = `${connection.remoteAddr.toString()}/p2p-circuit/p2p/${libp2p.peerId.toString()}`
+      try {
+        const addr = multiaddr(relayAddress)
+        derived.set(addr.toString(), addr)
+      } catch {
+        // Ignore connections that do not produce a valid relay circuit multiaddr.
+      }
+    }
+
+    setListenAddresses([...derived.values()])
+  }, [libp2p])
+
   useEffect(() => {
     const onConnection = () => {
       const connections = libp2p.getConnections()
       setConnections(connections)
+      resolveListenAddresses()
     }
     onConnection()
     libp2p.addEventListener('connection:open', onConnection)
@@ -38,13 +65,9 @@ export default function ConnectionPanel({ isOpen, onClose }: { isOpen: boolean; 
       libp2p.removeEventListener('connection:open', onConnection)
       libp2p.removeEventListener('connection:close', onConnection)
     }
-  }, [libp2p, setConnections])
+  }, [libp2p, resolveListenAddresses, setConnections])
 
   useEffect(() => {
-    const syncListenAddresses = () => {
-      setListenAddresses(libp2p.getMultiaddrs())
-    }
-
     const onPeerUpdate = (evt: CustomEvent<PeerUpdate>) => {
       const maddrs = evt.detail.peer.addresses?.map((p) => p.multiaddr)
       if ((maddrs?.length ?? 0) > 0) {
@@ -52,16 +75,16 @@ export default function ConnectionPanel({ isOpen, onClose }: { isOpen: boolean; 
         return
       }
 
-      syncListenAddresses()
+      resolveListenAddresses()
     }
 
-    syncListenAddresses()
+    resolveListenAddresses()
     libp2p.addEventListener('self:peer:update', onPeerUpdate)
 
     return () => {
       libp2p.removeEventListener('self:peer:update', onPeerUpdate)
     }
-  }, [libp2p, setListenAddresses])
+  }, [libp2p, resolveListenAddresses, setListenAddresses])
 
   const handleConnectToMultiaddr = useCallback(
     async (e: React.MouseEvent<HTMLButtonElement>) => {
