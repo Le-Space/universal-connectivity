@@ -9,7 +9,7 @@ OUT_DIR="${OUT_DIR:-${ALEPH_DIR}/dist-rootfs}"
 BASE_URL="${BASE_URL:-https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2}"
 BASE_IMAGE="${OUT_DIR}/debian-12-genericcloud-amd64.qcow2"
 IMAGE="${OUT_DIR}/aleph-uc-go-peer.qcow2"
-APP_TAR="${OUT_DIR}/uc-go-peer.tar"
+APP_BINARY="${OUT_DIR}/universal-chat-go"
 ROOTFS_IMAGE_SIZE="${ROOTFS_IMAGE_SIZE:-20G}"
 
 require() {
@@ -22,8 +22,8 @@ require() {
 require curl
 require qemu-img
 require virt-customize
-require tar
 require python3
+require go
 
 eval "$(python3 "${SCRIPT_DIR}/read-rootfs-contract.py" "${ROOTFS_CONTRACT_FILE}")"
 
@@ -51,17 +51,22 @@ fi
 cp "${BASE_IMAGE}" "${IMAGE}"
 qemu-img resize "${IMAGE}" "${ROOTFS_IMAGE_SIZE}"
 
-tar \
-  --exclude ".git" \
-  -C "${PROJECT_DIR}" \
-  -cf "${APP_TAR}" \
-  go-peer
+echo "Building universal-chat-go outside the guest image"
+(
+  cd "${PROJECT_DIR}/go-peer"
+  GOMODCACHE="${OUT_DIR}/gomodcache" \
+  GOCACHE="${OUT_DIR}/gocache" \
+  CGO_ENABLED=0 \
+  go build -ldflags="-w -s" -o "${APP_BINARY}" .
+)
+
+rm -rf "${OUT_DIR}/gomodcache" "${OUT_DIR}/gocache"
 
 virt-customize \
   -a "${IMAGE}" \
   --mkdir "${ROOTFS_CONTRACT_INSTALL_DIR}" \
   --mkdir "${ROOTFS_CONTRACT_DATA_DIR}" \
-  --copy-in "${APP_TAR}:/opt" \
+  --copy-in "${APP_BINARY}:/usr/local/bin" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-bootstrap.sh:/usr/local/sbin" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-configure.sh:/usr/local/sbin" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-autotls-refresh.py:/usr/local/sbin" \
@@ -69,7 +74,7 @@ virt-customize \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-bootstrap.service:/etc/systemd/system" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-autotls-refresh.service:/etc/systemd/system" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer.service:/etc/systemd/system" \
-  --run-command "tar -xf /opt/$(basename "${APP_TAR}") -C /opt" \
+  --run-command "chmod 0755 /usr/local/bin/$(basename "${APP_BINARY}")" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-bootstrap.sh" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-configure.sh" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-autotls-refresh.py" \
@@ -79,7 +84,6 @@ virt-customize \
   --run-command "INSTALL_DIR=${ROOTFS_CONTRACT_INSTALL_DIR} DATA_DIR=${ROOTFS_CONTRACT_DATA_DIR} ENV_FILE=${ROOTFS_CONTRACT_ENV_FILE} SERVICE_USER=uc-go-peer /usr/local/sbin/uc-go-peer-bootstrap.sh finalize" \
   --run-command "systemctl enable ${ROOTFS_CONTRACT_BOOTSTRAP_SERVICE}" \
   --run-command "systemctl enable ${ROOTFS_CONTRACT_AUTOTLS_SERVICE}" \
-  --run-command "systemctl enable ${ROOTFS_CONTRACT_MAIN_SERVICE}" \
-  --run-command "rm -f /opt/$(basename "${APP_TAR}")"
+  --run-command "systemctl enable ${ROOTFS_CONTRACT_MAIN_SERVICE}"
 
 echo "Rootfs image ready at ${IMAGE}"

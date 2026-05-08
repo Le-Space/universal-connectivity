@@ -11,11 +11,11 @@ AUTOTLS_READY_FILE="${AUTOTLS_READY_FILE:-/etc/default/uc-go-peer.autotls-ready}
 AUTOTLS_ZONE_FILE="${AUTOTLS_ZONE_FILE:-/etc/default/uc-go-peer.autotls-zone}"
 AUTOTLS_HOSTS_FILE="${AUTOTLS_HOSTS_FILE:-/etc/default/uc-go-peer.autotls-hosts}"
 AUTOTLS_CADDY_READY_FILE="${AUTOTLS_CADDY_READY_FILE:-/etc/default/uc-go-peer.caddy-ready}"
-GO_VERSION="${GO_VERSION:-1.25.0}"
+APP_BINARY="${APP_BINARY:-/usr/local/bin/universal-chat-go}"
 PHASE="${1:-all}"
 
 if [ ! -d "${INSTALL_DIR}" ]; then
-  echo "Missing ${INSTALL_DIR}; the rootfs build did not copy go-peer."
+  echo "Missing ${INSTALL_DIR}; the rootfs build did not create the install directory."
   exit 1
 fi
 
@@ -23,7 +23,7 @@ echo "[uc-go-peer-bootstrap] starting"
 echo "[uc-go-peer-bootstrap] install dir: ${INSTALL_DIR}"
 echo "[uc-go-peer-bootstrap] data dir: ${DATA_DIR}"
 echo "[uc-go-peer-bootstrap] env file: ${ENV_FILE}"
-echo "[uc-go-peer-bootstrap] requested Go version: ${GO_VERSION}"
+echo "[uc-go-peer-bootstrap] app binary: ${APP_BINARY}"
 
 run_phase_base() {
   export DEBIAN_FRONTEND=noninteractive
@@ -31,27 +31,17 @@ run_phase_base() {
   echo "[uc-go-peer-bootstrap] running apt-get update"
   apt-get update
   echo "[uc-go-peer-bootstrap] installing base packages"
-  apt-get install -y ca-certificates curl tar caddy
+  apt-get install -y ca-certificates curl caddy
   rm -rf /var/lib/apt/lists/*
-
-  if [ ! -x /usr/local/go/bin/go ]; then
-    echo "[uc-go-peer-bootstrap] downloading Go ${GO_VERSION}"
-    curl -fL --retry 5 --retry-delay 2 "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
-    rm -rf /usr/local/go
-    echo "[uc-go-peer-bootstrap] extracting Go toolchain"
-    tar -C /usr/local -xzf /tmp/go.tgz
-    rm -f /tmp/go.tgz
-  fi
 }
 
 run_phase_build() {
-  export PATH="/usr/local/go/bin:${PATH}"
   echo "[uc-go-peer-bootstrap] phase=build"
-  echo "[uc-go-peer-bootstrap] go version: $(go version)"
-  cd "${INSTALL_DIR}"
-  echo "[uc-go-peer-bootstrap] building universal-chat-go"
-  CGO_ENABLED=0 go build -x -ldflags="-w -s" -o /usr/local/bin/universal-chat-go .
-  echo "[uc-go-peer-bootstrap] build complete"
+  if [ ! -x "${APP_BINARY}" ]; then
+    echo "[uc-go-peer-bootstrap] missing application binary: ${APP_BINARY}"
+    exit 1
+  fi
+  echo "[uc-go-peer-bootstrap] application binary already provisioned"
 }
 
 run_phase_finalize() {
