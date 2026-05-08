@@ -11,9 +11,7 @@
     "installMode": "prebaked",
     "installDir": "/opt/go-peer",
     "dataDir": "/var/lib/uc-go-peer",
-    "envFile": "/etc/default/uc-go-peer",
-    "builderRepository": "NiKrause/aleph-libp2p-relay",
-    "builderSubdirectory": "relay-deployer-pwa"
+    "envFile": "/etc/default/uc-go-peer"
   },
   "services": {
     "bootstrap": "uc-go-peer-bootstrap.service",

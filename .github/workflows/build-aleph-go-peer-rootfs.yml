@@ -8,16 +8,6 @@ on:
         required: true
         default: false
         type: boolean
-      rootfs_builder_repository:
-        description: Repository containing relay-deployer-pwa/rootfs
-        required: true
-        default: NiKrause/aleph-libp2p-relay
-        type: string
-      rootfs_builder_ref:
-        description: Branch, tag, or SHA to use from the rootfs builder repository
-        required: true
-        default: main
-        type: string
       rootfs_version:
         description: Optional explicit version override for the generated rootfs manifest
         required: false
@@ -34,9 +24,7 @@ jobs:
   build-rootfs:
     runs-on: ubuntu-24.04
     env:
-      PROFILE_PATH: deploy/rootfs-profiles/uc-go-peer.json
       ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
-      ALEPH_PRIVATE_KEY_STRING: ${{ secrets.ALEPH_PRIVATE_KEY }}
 
     steps:
       - name: Checkout universal-connectivity
@@ -51,14 +39,13 @@ jobs:
           import json
           from pathlib import Path
 
-          profile = json.loads(Path("deploy/rootfs-profiles/uc-go-peer.json").read_text())
+          profile = json.loads(Path("go-peer/aleph/root-profiles/uc-go-peer.json").read_text())
           rootfs = profile["rootfs"]
           services = profile["services"]
 
-          print("ROOTFS_CONTRACT_FILE=${{ github.workspace }}/universal-connectivity/deploy/rootfs-profiles/uc-go-peer.json")
+          print("ROOTFS_CONTRACT_FILE=${{ github.workspace }}/universal-connectivity/go-peer/aleph/root-profiles/uc-go-peer.json")
           print(f"ROOTFS_PROFILE={rootfs['profile']}")
           print(f"ROOTFS_INSTALL_MODE={rootfs['installMode']}")
-          print(f"ROOTFS_BUILDER_SUBDIRECTORY={rootfs['builderSubdirectory']}")
           print(f"ROOTFS_INSTALL_DIR={rootfs['installDir']}")
           print(f"ROOTFS_DATA_DIR={rootfs['dataDir']}")
           print(f"ROOTFS_ENV_FILE={rootfs['envFile']}")
@@ -77,13 +64,6 @@ jobs:
             build_date="$(date -u +%Y%m%d)"
             echo "ROOTFS_VERSION=uc-go-peer-git-${build_date}-${short_sha}" >> "$GITHUB_ENV"
           fi
-
-      - name: Checkout rootfs builder repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ inputs.rootfs_builder_repository }}
-          ref: ${{ inputs.rootfs_builder_ref }}
-          path: rootfs-builder
 
       - name: Validate publish configuration
         run: |
@@ -136,10 +116,9 @@ jobs:
           PY
 
       - name: Build uc-go-peer rootfs
-        working-directory: rootfs-builder/relay-deployer-pwa
+        working-directory: universal-connectivity/go-peer/aleph
         env:
           ROOTFS_CONTRACT_FILE: ${{ env.ROOTFS_CONTRACT_FILE }}
-          UNIVERSAL_CONNECTIVITY_DIR: ${{ github.workspace }}/universal-connectivity
           SKIP_UPLOAD: ${{ inputs.publish && '0' || '1' }}
         run: |
           bash rootfs/build-rootfs.sh
@@ -149,18 +128,18 @@ jobs:
         with:
           name: uc-go-peer-rootfs-${{ env.ROOTFS_VERSION }}
           path: |
-            rootfs-builder/relay-deployer-pwa/dist-rootfs/*.qcow2
-            rootfs-builder/relay-deployer-pwa/dist-rootfs/*.json
-            rootfs-builder/relay-deployer-pwa/dist-rootfs/*.jsonl
+            universal-connectivity/go-peer/aleph/dist-rootfs/*.qcow2
+            universal-connectivity/go-peer/aleph/dist-rootfs/*.json
+            universal-connectivity/go-peer/aleph/dist-rootfs/*.jsonl
           if-no-files-found: error
 
       - name: Summarize rootfs build
-        working-directory: rootfs-builder/relay-deployer-pwa
+        working-directory: universal-connectivity/go-peer/aleph
         run: |
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Builder repository: \`${{ inputs.rootfs_builder_repository }}@${{ inputs.rootfs_builder_ref }}\`"
+            echo "- Builder path: \`go-peer/aleph/rootfs\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Derived version: \`${ROOTFS_VERSION}\`"
