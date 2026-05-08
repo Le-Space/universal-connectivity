@@ -107,28 +107,30 @@ export async function startLibp2p(): Promise<Libp2pType> {
   libp2p.addEventListener('peer:discovery', (event) => {
     const { multiaddrs, id } = event.detail
 
-    if ((libp2p.getConnections(id)?.length ?? 0) > 0) {
-      log('already connected to peer %s, skipping dial', id.toString())
-      return
+    const connectionCount = libp2p.getConnections(id)?.length ?? 0
+    if (connectionCount > 0) {
+      log(
+        'peer %s rediscovered with %d existing connection(s), continuing dial attempt',
+        id.toString(),
+        connectionCount,
+      )
     }
 
     void dialWebRTCMaddrs(libp2p, multiaddrs)
   })
 
-  Promise.resolve()
-    .then(async () => {
-      for (const addr of relayBootstrapAddrs) {
-        try {
-          log('dialling configured relay bootstrap address: %s', addr)
-          await connectToMultiaddr(libp2p)(multiaddr(addr))
-        } catch (error) {
-          log.error('failed to dial configured relay bootstrap address %s: %o', addr, error)
-        }
+  void (async () => {
+    for (const addr of relayBootstrapAddrs) {
+      try {
+        log('dialling configured relay bootstrap address: %s', addr)
+        await connectToMultiaddr(libp2p)(multiaddr(addr))
+      } catch (error) {
+        log.error('failed to dial configured relay bootstrap address %s: %o', addr, error)
       }
-    })
-    .catch((error) => {
-      log.error('bootstrap dial error: %o', error)
-    })
+    }
+  })().catch((error) => {
+    log.error('bootstrap dial error: %o', error)
+  })
 
   return libp2p as Libp2pType
 }
@@ -171,7 +173,7 @@ async function getRelayBootstrapAddrs(client: DelegatedRoutingV1HttpApiClient): 
   const configuredRelayListenAddrs = getConfiguredRelayListenAddrs()
   if (configuredRelayListenAddrs.length > 0) {
     log('using NEXT_PUBLIC_RELAY_LISTEN_ADDRS override as explicit relay bootstrap addresses')
-    return configuredRelayListenAddrs.map(normalizeRelayBootstrapAddr)
+    return configuredRelayListenAddrs
   }
 
   const bootstrapPeerIds = getConfiguredBootstrapPeerIds()
@@ -184,11 +186,7 @@ async function getRelayBootstrapAddrs(client: DelegatedRoutingV1HttpApiClient): 
     }
 
     for (const maddr of peer.Addrs) {
-      const protos = maddr.protoNames()
-      if (protos.includes('tls') && protos.includes('ws')) {
-        if (maddr.nodeAddress().address === '127.0.0.1') {
-          continue
-        }
+      if (isBrowserDialableBootstrapAddr(maddr)) {
         relayBootstrapAddrs.push(getRelayBootstrapAddr(maddr, peer.ID))
       }
     }
@@ -199,8 +197,21 @@ async function getRelayBootstrapAddrs(client: DelegatedRoutingV1HttpApiClient): 
 
 const getRelayBootstrapAddr = (maddr: Multiaddr, peer: PeerId): string => `${maddr.toString()}/p2p/${peer.toString()}`
 
-function normalizeRelayBootstrapAddr(addr: string): string {
-  return addr.endsWith('/p2p-circuit') ? addr.slice(0, -'/p2p-circuit'.length) : addr
+function isBrowserDialableBootstrapAddr(maddr: Multiaddr): boolean {
+  const protos = maddr.protoNames()
+  const isSecureWebSocketAddr = protos.includes('tls') && protos.includes('ws')
+  const isWebTransportAddr = protos.includes('webtransport')
+
+  if (!isSecureWebSocketAddr && !isWebTransportAddr) {
+    return false
+  }
+
+  try {
+    const host = maddr.nodeAddress().address
+    return host !== '127.0.0.1' && host !== '::1' && host !== '0.0.0.0' && host !== '::'
+  } catch {
+    return true
+  }
 }
 
 export const getFormattedConnections = (connections: Connection[]) =>

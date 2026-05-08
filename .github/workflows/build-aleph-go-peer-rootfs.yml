@@ -1,0 +1,179 @@
+name: Build uc-go-peer rootfs
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the built qcow2 to Aleph
+        required: true
+        default: false
+        type: boolean
+      rootfs_builder_repository:
+        description: Repository containing relay-deployer-pwa/rootfs
+        required: true
+        default: NiKrause/aleph-libp2p-relay
+        type: string
+      rootfs_builder_ref:
+        description: Branch, tag, or SHA to use from the rootfs builder repository
+        required: true
+        default: main
+        type: string
+      rootfs_version:
+        description: Optional explicit version override for the generated rootfs manifest
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uc-go-peer-rootfs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-rootfs:
+    runs-on: ubuntu-24.04
+    env:
+      PROFILE_PATH: deploy/rootfs-profiles/uc-go-peer.json
+      ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
+      ALEPH_PRIVATE_KEY_STRING: ${{ secrets.ALEPH_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout universal-connectivity
+        uses: actions/checkout@v4
+        with:
+          path: universal-connectivity
+
+      - name: Load uc-go-peer rootfs profile
+        working-directory: universal-connectivity
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+
+          profile = json.loads(Path("deploy/rootfs-profiles/uc-go-peer.json").read_text())
+          rootfs = profile["rootfs"]
+          services = profile["services"]
+
+          print("ROOTFS_CONTRACT_FILE=${{ github.workspace }}/universal-connectivity/deploy/rootfs-profiles/uc-go-peer.json")
+          print(f"ROOTFS_PROFILE={rootfs['profile']}")
+          print(f"ROOTFS_INSTALL_MODE={rootfs['installMode']}")
+          print(f"ROOTFS_BUILDER_SUBDIRECTORY={rootfs['builderSubdirectory']}")
+          print(f"ROOTFS_INSTALL_DIR={rootfs['installDir']}")
+          print(f"ROOTFS_DATA_DIR={rootfs['dataDir']}")
+          print(f"ROOTFS_ENV_FILE={rootfs['envFile']}")
+          print(f"ROOTFS_SERVICE_MAIN={services['main']}")
+          print(f"ROOTFS_SERVICE_BOOTSTRAP={services['bootstrap']}")
+          print(f"ROOTFS_SERVICE_AUTOTLS={services['autotlsRefresh']}")
+          PY
+
+      - name: Derive rootfs version
+        working-directory: universal-connectivity
+        run: |
+          if [[ -n "${{ inputs.rootfs_version }}" ]]; then
+            echo "ROOTFS_VERSION=${{ inputs.rootfs_version }}" >> "$GITHUB_ENV"
+          else
+            short_sha="$(git rev-parse --short HEAD)"
+            build_date="$(date -u +%Y%m%d)"
+            echo "ROOTFS_VERSION=uc-go-peer-git-${build_date}-${short_sha}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout rootfs builder repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.rootfs_builder_repository }}
+          ref: ${{ inputs.rootfs_builder_ref }}
+          path: rootfs-builder
+
+      - name: Validate publish configuration
+        run: |
+          if [[ "${{ inputs.publish }}" == "true" && -z "${ALEPH_PRIVATE_KEY}" ]]; then
+            echo "publish=true requires the ALEPH_PRIVATE_KEY secret." >&2
+            exit 1
+          fi
+
+      - name: Install rootfs build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            libguestfs-tools \
+            libsecp256k1-dev \
+            python3 \
+            python3-pip \
+            qemu-utils \
+            squashfs-tools \
+            tar
+
+      - name: Install aleph client
+        if: ${{ inputs.publish }}
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install aleph-client
+
+      - name: Prepare Aleph account
+        if: ${{ inputs.publish }}
+        run: |
+          mkdir -p "$HOME/.aleph-im/private-keys"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          private_key = os.environ["ALEPH_PRIVATE_KEY"].strip()
+          if private_key.startswith("0x"):
+              private_key = private_key[2:]
+
+          key_bytes = bytes.fromhex(private_key)
+          config_home = Path.home() / ".aleph-im"
+          key_path = config_home / "private-keys" / "aleph-vm.key"
+          config_path = config_home / "config.json"
+
+          key_path.write_bytes(key_bytes)
+          config_path.write_text(json.dumps({"chain": "ETH", "path": str(key_path)}))
+          print(f"Wrote Aleph key to {key_path}")
+          print(f"Wrote Aleph config to {config_path}")
+          PY
+
+      - name: Build uc-go-peer rootfs
+        working-directory: rootfs-builder/relay-deployer-pwa
+        env:
+          ROOTFS_CONTRACT_FILE: ${{ env.ROOTFS_CONTRACT_FILE }}
+          UNIVERSAL_CONNECTIVITY_DIR: ${{ github.workspace }}/universal-connectivity
+          SKIP_UPLOAD: ${{ inputs.publish && '0' || '1' }}
+        run: |
+          bash rootfs/build-rootfs.sh
+
+      - name: Upload rootfs artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: uc-go-peer-rootfs-${{ env.ROOTFS_VERSION }}
+          path: |
+            rootfs-builder/relay-deployer-pwa/dist-rootfs/*.qcow2
+            rootfs-builder/relay-deployer-pwa/dist-rootfs/*.json
+            rootfs-builder/relay-deployer-pwa/dist-rootfs/*.jsonl
+          if-no-files-found: error
+
+      - name: Summarize rootfs build
+        working-directory: rootfs-builder/relay-deployer-pwa
+        run: |
+          {
+            echo "## uc-go-peer rootfs build"
+            echo
+            echo "- Builder repository: \`${{ inputs.rootfs_builder_repository }}@${{ inputs.rootfs_builder_ref }}\`"
+            echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
+            echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
+            echo "- Derived version: \`${ROOTFS_VERSION}\`"
+            echo "- Publish to Aleph: \`${{ inputs.publish }}\`"
+            echo "- Main service: \`${ROOTFS_SERVICE_MAIN}\`"
+            echo "- Bootstrap service: \`${ROOTFS_SERVICE_BOOTSTRAP}\`"
+            if [[ -f dist-rootfs/rootfs-manifest.json ]]; then
+              echo
+              echo "### Manifest"
+              echo
+              echo '```json'
+              cat dist-rootfs/rootfs-manifest.json
+              echo
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
