@@ -46,6 +46,8 @@ jobs:
           fi
           echo "github.event_name=${{ github.event_name }}"
           echo "github.ref=${{ github.ref }}"
+      # PRs and non-main branch pushes only create Aleph preview deployments.
+      # The live domain is updated exclusively by the later main-branch step.
       - name: Deploy preview on Aleph for PRs
         id: deploy
         if: github.event_name == 'pull_request'
