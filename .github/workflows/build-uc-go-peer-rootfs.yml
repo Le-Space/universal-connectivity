@@ -105,10 +105,10 @@ jobs:
             tar
 
       - name: Install aleph client
-        working-directory: rootfs-builder/aleph-client
+        if: ${{ inputs.publish }}
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install .
+          python3 -m pip install aleph-client
 
       - name: Build uc-go-peer rootfs
         working-directory: rootfs-builder/relay-deployer-pwa
