@@ -58,6 +58,7 @@ def main() -> int:
         shell_assign("ROOTFS_CONTRACT_MAIN_SERVICE", str(services.get("main", ""))),
         shell_assign("ROOTFS_CONTRACT_BOOTSTRAP_SERVICE", str(services.get("bootstrap", ""))),
         shell_assign("ROOTFS_CONTRACT_AUTOTLS_SERVICE", str(services.get("autotlsRefresh", ""))),
+        shell_assign("ROOTFS_CONTRACT_MANIFEST_COPY_TARGET", str(manifest.get("copyTarget", ""))),
         shell_assign("ROOTFS_CONTRACT_MANIFEST_NOTES", str(manifest.get("notes", ""))),
         shell_assign("ROOTFS_CONTRACT_PORT_FORWARDS_JSON", json.dumps(ports, separators=(",", ":"))),
     ]

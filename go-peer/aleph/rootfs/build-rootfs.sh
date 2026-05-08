@@ -14,6 +14,8 @@ CHANNEL="${CHANNEL:-ALEPH-CLOUDSOLUTIONS}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 IPFS_ADD_URL="${IPFS_ADD_URL:-https://ipfs.aleph.cloud/api/v0/add}"
+ROOTFS_CID=""
+ROOTFS_ITEM_HASH=""
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -107,8 +109,43 @@ build_with_docker() {
     bash rootfs/build-rootfs-image.sh
 }
 
+sync_manifest_copy_target() {
+  local manifest_path="${OUT_DIR}/rootfs-manifest.json"
+  local copy_target="${ROOTFS_CONTRACT_MANIFEST_COPY_TARGET:-}"
+  local resolved_target
+  local target_dir
+  local target_ext
+  local versioned_target
+
+  [ -n "${copy_target}" ] || return 0
+  [ -f "${manifest_path}" ] || die "Manifest does not exist: ${manifest_path}"
+
+  if [[ "${copy_target}" = /* ]]; then
+    resolved_target="${copy_target}"
+  else
+    resolved_target="${PROJECT_DIR}/${copy_target}"
+  fi
+
+  target_dir="$(dirname "${resolved_target}")"
+  mkdir -p "${target_dir}"
+  cp "${manifest_path}" "${resolved_target}"
+
+  target_ext=".json"
+  case "${resolved_target}" in
+    *.json)
+      target_ext=".json"
+      ;;
+  esac
+  versioned_target="${target_dir}/${ROOTFS_VERSION}${target_ext}"
+  cp "${manifest_path}" "${versioned_target}"
+
+  echo "Copied rootfs manifest to ${resolved_target}"
+  echo "Copied versioned rootfs manifest to ${versioned_target}"
+}
+
 write_manifest() {
-  local rootfs_item_hash="${1:-}"
+  local rootfs_cid="${1:-}"
+  local rootfs_item_hash="${2:-}"
   local rootfs_source_size_bytes=""
 
   if [ -f "${OUT_DIR}/ipfs-add-response.jsonl" ]; then
@@ -142,6 +179,9 @@ PY
       echo "  \"rootfsSourceSizeBytes\": ${rootfs_source_size_bytes},"
     fi
     printf '  "requiredPortForwards": %s,\n' "${ROOTFS_CONTRACT_PORT_FORWARDS_JSON}"
+    if [ -n "${rootfs_cid}" ]; then
+      echo "  \"rootfsCid\": \"${rootfs_cid}\","
+    fi
     if [ -n "${rootfs_item_hash}" ]; then
       echo "  \"rootfsItemHash\": \"${rootfs_item_hash}\","
     fi
@@ -152,6 +192,7 @@ PY
   } > "${OUT_DIR}/rootfs-manifest.json"
 
   echo "Rootfs manifest written to ${OUT_DIR}/rootfs-manifest.json"
+  sync_manifest_copy_target
 }
 
 upload_image() {
@@ -174,8 +215,7 @@ upload_image() {
     die "IPFS upload failed for ${image}"
   fi
 
-  local cid
-  cid="$(python3 - "${OUT_DIR}/ipfs-add-response.jsonl" <<'PY'
+  ROOTFS_CID="$(python3 - "${OUT_DIR}/ipfs-add-response.jsonl" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -193,15 +233,15 @@ print(cid)
 PY
 )" || die "Failed to extract CID from ${OUT_DIR}/ipfs-add-response.jsonl"
 
-  echo "Pinning CID ${cid} on Aleph Cloud..."
+  echo "Pinning CID ${ROOTFS_CID} on Aleph Cloud..."
   : > "${OUT_DIR}/store-message.json"
-  if ! "${aleph_bin}" file pin "${cid}" \
+  if ! "${aleph_bin}" file pin "${ROOTFS_CID}" \
     --channel "${CHANNEL}" \
     > "${OUT_DIR}/store-message.json"; then
-    die "Aleph pin failed for CID ${cid}"
+    die "Aleph pin failed for CID ${ROOTFS_CID}"
   fi
 
-  python3 - "${OUT_DIR}/store-message.json" <<'PY'
+  ROOTFS_ITEM_HASH="$(python3 - "${OUT_DIR}/store-message.json" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -213,6 +253,10 @@ if not content:
 payload = json.loads(content)
 print(payload["item_hash"])
 PY
+)" || die "Failed to extract Aleph item hash from ${OUT_DIR}/store-message.json"
+
+  echo "Published rootfs CID: ${ROOTFS_CID}"
+  echo "Published Aleph item hash: ${ROOTFS_ITEM_HASH}"
 }
 
 mkdir -p "${OUT_DIR}"
@@ -257,5 +301,5 @@ if [ "${SKIP_UPLOAD}" = "1" ]; then
   exit 0
 fi
 
-ROOTFS_ITEM_HASH="$(upload_image)"
-write_manifest "${ROOTFS_ITEM_HASH}"
+upload_image
+write_manifest "${ROOTFS_CID}" "${ROOTFS_ITEM_HASH}"

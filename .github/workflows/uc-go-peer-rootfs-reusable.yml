@@ -1,0 +1,287 @@
+name: uc-go-peer rootfs reusable
+
+on:
+  workflow_call:
+    inputs:
+      publish:
+        description: Publish the built qcow2 to Aleph
+        required: false
+        default: false
+        type: boolean
+      rootfs_version:
+        description: Optional explicit version override for the generated rootfs manifest
+        required: false
+        default: ''
+        type: string
+      aleph_domain:
+        description: Optional production domain for js-peer manifest publishing
+        required: false
+        default: ''
+        type: string
+      aleph_retention_days:
+        description: Optional retention_days value for Aleph hosting
+        required: false
+        default: ''
+        type: string
+    secrets:
+      ALEPH_PRIVATE_KEY:
+        required: false
+    outputs:
+      rootfs_version:
+        description: Derived or supplied rootfs version
+        value: ${{ jobs.build-rootfs.outputs.rootfs_version }}
+      rootfs_cid:
+        description: Published IPFS CID for the rootfs image
+        value: ${{ jobs.build-rootfs.outputs.rootfs_cid }}
+      rootfs_item_hash:
+        description: Aleph STORE message item hash for the published rootfs image
+        value: ${{ jobs.build-rootfs.outputs.rootfs_item_hash }}
+      manifest_latest_url:
+        description: Stable latest manifest URL when published through js-peer
+        value: ${{ jobs.build-rootfs.outputs.manifest_latest_url }}
+      manifest_versioned_url:
+        description: Versioned manifest URL when published through js-peer
+        value: ${{ jobs.build-rootfs.outputs.manifest_versioned_url }}
+      site_url:
+        description: Published js-peer site URL when available
+        value: ${{ jobs.build-rootfs.outputs.site_url }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-rootfs:
+    runs-on: ubuntu-24.04
+    env:
+      ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
+    outputs:
+      rootfs_version: ${{ steps.collect_outputs.outputs.rootfs_version }}
+      rootfs_cid: ${{ steps.collect_outputs.outputs.rootfs_cid }}
+      rootfs_item_hash: ${{ steps.collect_outputs.outputs.rootfs_item_hash }}
+      manifest_latest_url: ${{ steps.collect_outputs.outputs.manifest_latest_url }}
+      manifest_versioned_url: ${{ steps.collect_outputs.outputs.manifest_versioned_url }}
+      site_url: ${{ steps.collect_outputs.outputs.site_url }}
+
+    steps:
+      - name: Checkout universal-connectivity
+        uses: actions/checkout@v4
+        with:
+          path: universal-connectivity
+
+      - name: Load uc-go-peer rootfs profile
+        working-directory: universal-connectivity
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json
+          from pathlib import Path
+
+          profile = json.loads(Path("go-peer/aleph/root-profiles/uc-go-peer.json").read_text())
+          rootfs = profile["rootfs"]
+          services = profile["services"]
+          manifest = profile["manifest"]
+
+          print("ROOTFS_CONTRACT_FILE=${{ github.workspace }}/universal-connectivity/go-peer/aleph/root-profiles/uc-go-peer.json")
+          print(f"ROOTFS_PROFILE={rootfs['profile']}")
+          print(f"ROOTFS_INSTALL_MODE={rootfs['installMode']}")
+          print(f"ROOTFS_INSTALL_DIR={rootfs['installDir']}")
+          print(f"ROOTFS_DATA_DIR={rootfs['dataDir']}")
+          print(f"ROOTFS_ENV_FILE={rootfs['envFile']}")
+          print(f"ROOTFS_SERVICE_MAIN={services['main']}")
+          print(f"ROOTFS_SERVICE_BOOTSTRAP={services['bootstrap']}")
+          print(f"ROOTFS_SERVICE_AUTOTLS={services['autotlsRefresh']}")
+          print(f"ROOTFS_MANIFEST_COPY_TARGET={manifest['copyTarget']}")
+          PY
+
+      - name: Derive rootfs version
+        working-directory: universal-connectivity
+        run: |
+          if [[ -n "${{ inputs.rootfs_version }}" ]]; then
+            echo "ROOTFS_VERSION=${{ inputs.rootfs_version }}" >> "$GITHUB_ENV"
+          else
+            short_sha="$(git rev-parse --short HEAD)"
+            build_date="$(date -u +%Y%m%d)"
+            echo "ROOTFS_VERSION=uc-go-peer-git-${build_date}-${short_sha}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Validate publish configuration
+        run: |
+          if [[ "${{ inputs.publish }}" == "true" && -z "${ALEPH_PRIVATE_KEY}" ]]; then
+            echo "publish=true requires the ALEPH_PRIVATE_KEY secret." >&2
+            exit 1
+          fi
+
+      - name: Install rootfs build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            libguestfs-tools \
+            libsecp256k1-dev \
+            python3 \
+            python3-pip \
+            qemu-utils \
+            squashfs-tools \
+            tar
+
+      - name: Install aleph client
+        if: ${{ inputs.publish }}
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install aleph-client
+
+      - name: Prepare Aleph account
+        if: ${{ inputs.publish }}
+        run: |
+          mkdir -p "$HOME/.aleph-im/private-keys"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          private_key = os.environ["ALEPH_PRIVATE_KEY"].strip()
+          if private_key.startswith("0x"):
+              private_key = private_key[2:]
+
+          key_bytes = bytes.fromhex(private_key)
+          config_home = Path.home() / ".aleph-im"
+          key_path = config_home / "private-keys" / "aleph-vm.key"
+          config_path = config_home / "config.json"
+
+          key_path.write_bytes(key_bytes)
+          config_path.write_text(json.dumps({"chain": "ETH", "path": str(key_path)}))
+          print(f"Wrote Aleph key to {key_path}")
+          print(f"Wrote Aleph config to {config_path}")
+          PY
+
+      - name: Build uc-go-peer rootfs
+        working-directory: universal-connectivity/go-peer/aleph
+        env:
+          ROOTFS_CONTRACT_FILE: ${{ env.ROOTFS_CONTRACT_FILE }}
+          SKIP_UPLOAD: ${{ inputs.publish && '0' || '1' }}
+        run: |
+          bash rootfs/build-rootfs.sh
+
+      - name: Set up Node for js-peer manifest publish
+        if: ${{ inputs.publish }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+
+      - name: Build js-peer site with latest rootfs manifest
+        if: ${{ inputs.publish }}
+        working-directory: universal-connectivity/js-peer
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy js-peer site with rootfs manifest on Aleph
+        if: ${{ inputs.publish }}
+        id: deploy_site
+        uses: aleph-im/web3-hosting-action@v1.1.4
+        with:
+          path: universal-connectivity/js-peer/out
+          private-key: ${{ env.ALEPH_PRIVATE_KEY }}
+          retention_days: ${{ inputs.aleph_retention_days }}
+
+      - name: Link production domain on Aleph as IPFS
+        if: ${{ inputs.publish && github.ref == 'refs/heads/main' && inputs.aleph_domain != '' }}
+        run: |
+          if [[ -z "${ITEM_HASH:-}" ]]; then
+            echo "ITEM_HASH is missing after js-peer deployment"
+            exit 1
+          fi
+          mkdir -p /home/runner/.aleph-im/private-keys
+          echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
+          aleph domain detach "${{ inputs.aleph_domain }}" --no-ask || true
+          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "$ITEM_HASH" --catch-all-path /index.html --no-ask
+
+      - name: Upload rootfs artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: uc-go-peer-rootfs-${{ env.ROOTFS_VERSION }}
+          path: |
+            universal-connectivity/go-peer/aleph/dist-rootfs/*.qcow2
+            universal-connectivity/go-peer/aleph/dist-rootfs/*.json
+            universal-connectivity/go-peer/aleph/dist-rootfs/*.jsonl
+          if-no-files-found: error
+
+      - name: Collect rootfs outputs
+        id: collect_outputs
+        working-directory: universal-connectivity/go-peer/aleph
+        run: |
+          rootfs_cid=''
+          rootfs_item_hash=''
+          site_url="${URL:-}"
+          manifest_latest_url=''
+          manifest_versioned_url=''
+
+          if [[ -f dist-rootfs/ipfs-add-response.jsonl ]]; then
+            rootfs_cid="$(python3 -c 'import json; from pathlib import Path; lines = [line for line in Path("dist-rootfs/ipfs-add-response.jsonl").read_text().splitlines() if line.strip()]; print(json.loads(lines[-1]).get("Hash", "") if lines else "")')"
+          fi
+
+          if [[ -f dist-rootfs/store-message.json ]]; then
+            rootfs_item_hash="$(python3 -c 'import json; from pathlib import Path; payload = json.loads(Path("dist-rootfs/store-message.json").read_text()); print(payload.get("item_hash", ""))')"
+          fi
+
+          if [[ "${{ inputs.publish }}" == "true" ]]; then
+            if [[ -n "${{ inputs.aleph_domain }}" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+              manifest_latest_url="https://${{ inputs.aleph_domain }}/rootfs/uc-go-peer/latest.json"
+              manifest_versioned_url="https://${{ inputs.aleph_domain }}/rootfs/uc-go-peer/${ROOTFS_VERSION}.json"
+            elif [[ -n "${site_url}" ]]; then
+              manifest_latest_url="${site_url%/}/rootfs/uc-go-peer/latest.json"
+              manifest_versioned_url="${site_url%/}/rootfs/uc-go-peer/${ROOTFS_VERSION}.json"
+            fi
+          fi
+
+          {
+            echo "rootfs_version=${ROOTFS_VERSION}"
+            echo "rootfs_cid=${rootfs_cid}"
+            echo "rootfs_item_hash=${rootfs_item_hash}"
+            echo "manifest_latest_url=${manifest_latest_url}"
+            echo "manifest_versioned_url=${manifest_versioned_url}"
+            echo "site_url=${site_url}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize rootfs build
+        working-directory: universal-connectivity/go-peer/aleph
+        run: |
+          {
+            echo "## uc-go-peer rootfs build"
+            echo
+            echo "- Builder path: \`go-peer/aleph/rootfs\`"
+            echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
+            echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
+            echo "- Derived version: \`${ROOTFS_VERSION}\`"
+            echo "- Publish to Aleph: \`${{ inputs.publish }}\`"
+            echo "- Main service: \`${ROOTFS_SERVICE_MAIN}\`"
+            echo "- Bootstrap service: \`${ROOTFS_SERVICE_BOOTSTRAP}\`"
+            echo "- Manifest copy target: \`${ROOTFS_MANIFEST_COPY_TARGET}\`"
+            if [[ -n "${{ steps.collect_outputs.outputs.rootfs_cid }}" ]]; then
+              echo "- Rootfs CID: \`${{ steps.collect_outputs.outputs.rootfs_cid }}\`"
+            fi
+            if [[ -n "${{ steps.collect_outputs.outputs.rootfs_item_hash }}" ]]; then
+              echo "- Rootfs Aleph item hash: \`${{ steps.collect_outputs.outputs.rootfs_item_hash }}\`"
+            fi
+            if [[ -n "${{ steps.collect_outputs.outputs.site_url }}" ]]; then
+              echo "- js-peer site URL: ${{ steps.collect_outputs.outputs.site_url }}"
+            fi
+            if [[ -n "${{ steps.collect_outputs.outputs.manifest_latest_url }}" ]]; then
+              echo "- Latest manifest URL: ${{ steps.collect_outputs.outputs.manifest_latest_url }}"
+            else
+              echo "- Latest manifest workspace path: \`js-peer/public/rootfs/uc-go-peer/latest.json\`"
+            fi
+            if [[ -n "${{ steps.collect_outputs.outputs.manifest_versioned_url }}" ]]; then
+              echo "- Versioned manifest URL: ${{ steps.collect_outputs.outputs.manifest_versioned_url }}"
+            else
+              echo "- Versioned manifest workspace path: \`js-peer/public/rootfs/uc-go-peer/${ROOTFS_VERSION}.json\`"
+            fi
+            if [[ -f dist-rootfs/rootfs-manifest.json ]]; then
+              echo
+              echo "### Manifest"
+              echo
+              echo '```json'
+              cat dist-rootfs/rootfs-manifest.json
+              echo
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
