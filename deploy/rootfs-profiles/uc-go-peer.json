@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "uc-go-peer",
+  "displayName": "Universal Connectivity Go Relay",
+  "source": {
+    "repository": "self",
+    "subdirectory": "go-peer"
+  },
+  "rootfs": {
+    "profile": "uc-go-peer",
+    "installMode": "prebaked",
+    "installDir": "/opt/go-peer",
+    "dataDir": "/var/lib/uc-go-peer",
+    "envFile": "/etc/default/uc-go-peer",
+    "builderRepository": "NiKrause/aleph-libp2p-relay",
+    "builderSubdirectory": "relay-deployer-pwa"
+  },
+  "services": {
+    "bootstrap": "uc-go-peer-bootstrap.service",
+    "main": "uc-go-peer.service",
+    "autotlsRefresh": "uc-go-peer-autotls-refresh.service"
+  },
+  "ports": [
+    {
+      "port": 22,
+      "tcp": true,
+      "udp": false,
+      "purpose": "SSH"
+    },
+    {
+      "port": 80,
+      "tcp": true,
+      "udp": false,
+      "purpose": "Temporary setup endpoint"
+    },
+    {
+      "port": 443,
+      "tcp": true,
+      "udp": false,
+      "purpose": "Caddy HTTPS and WSS proxy"
+    },
+    {
+      "port": 9095,
+      "tcp": true,
+      "udp": false,
+      "purpose": "libp2p TCP"
+    },
+    {
+      "port": 9096,
+      "tcp": true,
+      "udp": false,
+      "purpose": "libp2p WSS"
+    },
+    {
+      "port": 9097,
+      "tcp": false,
+      "udp": true,
+      "purpose": "QUIC and WebTransport"
+    },
+    {
+      "port": 9098,
+      "tcp": false,
+      "udp": true,
+      "purpose": "WebRTC direct"
+    }
+  ],
+  "manifest": {
+    "copyTarget": "public/rootfs-manifest.json",
+    "notes": "The go-peer image configures explicit external announce multiaddrs after deployment so libp2p TCP, WSS, QUIC, and WebRTC addresses use the actual Aleph host port mappings."
+  }
+}
