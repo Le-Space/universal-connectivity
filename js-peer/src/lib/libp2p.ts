@@ -109,7 +109,11 @@ export async function startLibp2p(): Promise<Libp2pType> {
 
     const connectionCount = libp2p.getConnections(id)?.length ?? 0
     if (connectionCount > 0) {
-      log('peer %s rediscovered with %d existing connection(s), continuing dial attempt', id.toString(), connectionCount)
+      log(
+        'peer %s rediscovered with %d existing connection(s), continuing dial attempt',
+        id.toString(),
+        connectionCount,
+      )
     }
 
     void dialWebRTCMaddrs(libp2p, multiaddrs)
