@@ -63,7 +63,7 @@
     }
   ],
   "manifest": {
-    "copyTarget": "public/rootfs-manifest.json",
+    "copyTarget": "js-peer/public/rootfs/uc-go-peer/latest.json",
     "notes": "The go-peer image configures explicit external announce multiaddrs after deployment so libp2p TCP, WSS, QUIC, and WebRTC addresses use the actual Aleph host port mappings."
   }
 }
