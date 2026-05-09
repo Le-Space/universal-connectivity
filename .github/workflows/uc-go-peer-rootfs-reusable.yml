@@ -1,5 +1,8 @@
 name: uc-go-peer rootfs reusable
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   workflow_call:
     inputs:
@@ -64,7 +67,7 @@ jobs:
 
     steps:
       - name: Checkout universal-connectivity
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: universal-connectivity
 
@@ -163,7 +166,7 @@ jobs:
 
       - name: Set up Node for js-peer manifest publish
         if: ${{ inputs.publish }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24.x'
 
@@ -196,7 +199,7 @@ jobs:
           aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "$ITEM_HASH" --catch-all-path /index.html --no-ask
 
       - name: Upload rootfs artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: uc-go-peer-rootfs-${{ env.ROOTFS_VERSION }}
           path: |

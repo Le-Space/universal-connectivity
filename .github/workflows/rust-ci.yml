@@ -1,5 +1,8 @@
 name: rust-peer ci
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on: 
   pull_request:
     paths:
@@ -18,7 +21,7 @@ jobs:
       run:
         working-directory: ./rust-peer
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt -- --check
