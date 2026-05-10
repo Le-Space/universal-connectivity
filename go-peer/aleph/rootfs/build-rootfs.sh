@@ -17,6 +17,8 @@ IPFS_ADD_URL="${IPFS_ADD_URL:-https://ipfs.aleph.cloud/api/v0/add}"
 ALEPH_API_HOST="${ALEPH_API_HOST:-https://api2.aleph.im}"
 ALEPH_MESSAGE_WAIT_ATTEMPTS="${ALEPH_MESSAGE_WAIT_ATTEMPTS:-60}"
 ALEPH_MESSAGE_WAIT_DELAY_SECONDS="${ALEPH_MESSAGE_WAIT_DELAY_SECONDS:-5}"
+ALEPH_PIN_ATTEMPTS="${ALEPH_PIN_ATTEMPTS:-4}"
+ALEPH_PIN_DELAY_SECONDS="${ALEPH_PIN_DELAY_SECONDS:-10}"
 ROOTFS_CID=""
 ROOTFS_ITEM_HASH=""
 
@@ -315,14 +317,53 @@ PY
 )" || die "Failed to extract CID from ${OUT_DIR}/ipfs-add-response.jsonl"
 
   echo "Pinning CID ${ROOTFS_CID} on Aleph Cloud..."
-  : > "${OUT_DIR}/store-message.json"
-  if ! "${aleph_bin}" file pin "${ROOTFS_CID}" \
-    --channel "${CHANNEL}" \
-    > "${OUT_DIR}/store-message.json"; then
-    die "Aleph pin failed for CID ${ROOTFS_CID}"
+  local attempt
+  local stderr_log="${OUT_DIR}/store-message.stderr.log"
+  local stdout_log="${OUT_DIR}/store-message.json"
+  local last_error_summary=""
+
+  for attempt in $(seq 1 "${ALEPH_PIN_ATTEMPTS}"); do
+    : > "${stdout_log}"
+    : > "${stderr_log}"
+
+    echo "Aleph pin attempt ${attempt}/${ALEPH_PIN_ATTEMPTS} for CID ${ROOTFS_CID}..."
+    if "${aleph_bin}" file pin "${ROOTFS_CID}" \
+      --channel "${CHANNEL}" \
+      > "${stdout_log}" 2> "${stderr_log}"; then
+      break
+    fi
+
+    last_error_summary="$(python3 - "${stderr_log}" <<'PY'
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(errors="replace").strip()
+print(text or "Aleph pin failed without stderr output")
+PY
+)"
+
+    echo "Aleph pin attempt ${attempt}/${ALEPH_PIN_ATTEMPTS} failed for CID ${ROOTFS_CID}." >&2
+    if [[ -n "${last_error_summary}" ]]; then
+      echo "${last_error_summary}" >&2
+    fi
+
+    if [ "${attempt}" -lt "${ALEPH_PIN_ATTEMPTS}" ]; then
+      echo "Retrying Aleph pin in ${ALEPH_PIN_DELAY_SECONDS}s..." >&2
+      sleep "${ALEPH_PIN_DELAY_SECONDS}"
+      continue
+    fi
+
+    die "Aleph pin failed for CID ${ROOTFS_CID} after ${ALEPH_PIN_ATTEMPTS} attempts"
+  done
+
+  if [ ! -s "${stdout_log}" ]; then
+    if [ -n "${last_error_summary}" ]; then
+      echo "${last_error_summary}" >&2
+    fi
+    die "Aleph pin returned an empty response for CID ${ROOTFS_CID}"
   fi
 
-  ROOTFS_ITEM_HASH="$(python3 - "${OUT_DIR}/store-message.json" <<'PY'
+  ROOTFS_ITEM_HASH="$(python3 - "${stdout_log}" <<'PY'
 import json
 import sys
 from pathlib import Path
