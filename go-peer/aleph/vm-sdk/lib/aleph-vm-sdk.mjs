@@ -530,6 +530,32 @@ async function createUnsignedAggregateMessage(args) {
   }
 }
 
+async function createUnsignedForgetMessage(args) {
+  const content = {
+    address: args.sender,
+    time: args.now ?? Date.now() / 1000,
+    hashes: [...new Set((args.hashes ?? []).filter(Boolean))],
+    aggregates: [...new Set((args.aggregates ?? []).filter(Boolean))],
+    reason: asString(args.reason) ?? undefined
+  }
+
+  if (content.hashes.length === 0 && content.aggregates.length === 0) {
+    throw new Error('FORGET message requires at least one hash or aggregate key.')
+  }
+
+  const itemContent = JSON.stringify(content)
+  return {
+    sender: args.sender,
+    chain: 'ETH',
+    type: 'FORGET',
+    item_hash: sha256Hex(itemContent),
+    item_type: 'inline',
+    item_content: itemContent,
+    time: args.now ?? Date.now() / 1000,
+    channel: args.channel ?? ALEPH_DEFAULT_CHANNEL
+  }
+}
+
 export async function ensureInstancePortForwards(args) {
   const requestedPorts = mergeRequiredPortForwards(args.requiredPorts ?? defaultRequiredPorts())
   const aggregate = await fetchPortForwardAggregate(args.sender, args.apiHost ?? ALEPH_API_HOST)
@@ -563,6 +589,46 @@ export async function ensureInstancePortForwards(args) {
     aggregateItemHash: message.item_hash,
     aggregateStatus,
     requestedPorts
+  }
+}
+
+export async function forgetAlephMessages(args) {
+  const wallet = new Wallet(args.privateKey)
+  const sender = args.sender ?? wallet.address
+  const unsignedMessage = await createUnsignedForgetMessage({
+    sender,
+    hashes: args.hashes,
+    aggregates: args.aggregates,
+    reason: args.reason,
+    channel: args.channel,
+    now: args.now
+  })
+  const message = await signInstanceMessage(unsignedMessage, args.privateKey)
+  const result = await broadcastAlephMessage(message, args.apiHost ?? ALEPH_API_HOST, false)
+
+  return {
+    sender,
+    itemHash: message.item_hash,
+    response: result.response,
+    httpStatus: result.httpStatus,
+    status: normalizeMessageStatus(result.response?.message_status ?? (result.httpStatus === 202 ? 'pending' : undefined))
+  }
+}
+
+async function cleanupFailedDeployment(args) {
+  try {
+    return await forgetAlephMessages({
+      privateKey: args.privateKey,
+      sender: args.sender,
+      hashes: [args.instanceItemHash],
+      reason: args.reason ?? 'Discard failed deployment attempt',
+      channel: args.channel,
+      apiHost: args.apiHost
+    })
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
@@ -1160,6 +1226,25 @@ export async function deployVmAndWait(args) {
         'warning',
         `Deployment ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash} was processed but did not expose runtime networking in time.${runtime?.proxyUrl ? ` Proxy URL: ${runtime.proxyUrl}.` : ''}`
       )
+      const cleanup = await cleanupFailedDeployment({
+        privateKey: args.privateKey,
+        sender: deployment.sender,
+        instanceItemHash: deployment.itemHash,
+        reason: 'Processed deployment never exposed runtime networking',
+        channel: args.channel,
+        apiHost: args.apiHost ?? ALEPH_API_HOST
+      })
+      if (cleanup?.error) {
+        log(
+          'warning',
+          `Cleanup failed for deployment ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash}: ${cleanup.error}`
+        )
+      } else if (cleanup?.itemHash) {
+        log(
+          'notice',
+          `Cleanup forget message ${cleanup.itemHash} submitted for failed deployment ${deployment.itemHash}.`
+        )
+      }
       lastPartialResult = {
         ...deployment,
         attemptedCrns,
@@ -1167,7 +1252,8 @@ export async function deployVmAndWait(args) {
         runtime,
         configuration: null,
         verification: null,
-        portForwarding
+        portForwarding,
+        cleanup
       }
       deployment = null
       deploymentResult = null
