@@ -12,6 +12,35 @@ on:
         description: Optional explicit version override for the generated rootfs manifest
         required: false
         type: string
+      deploy_vm:
+        description: Deploy a uc-go-peer VM after publish and verify its reachable ports
+        required: false
+        default: false
+        type: boolean
+      vm_name:
+        description: Aleph VM instance name
+        required: false
+        default: uc-go-peer
+        type: string
+      vm_crn_hash:
+        description: Target CRN hash for the uc-go-peer deployment
+        required: false
+        type: string
+      vm_vcpus:
+        description: Requested vCPU count for the uc-go-peer VM
+        required: false
+        default: '1'
+        type: string
+      vm_memory_mib:
+        description: Requested memory in MiB for the uc-go-peer VM
+        required: false
+        default: '1024'
+        type: string
+      vm_rootfs_size_mib:
+        description: Rootfs disk size in MiB for the deployed uc-go-peer VM
+        required: false
+        default: '20480'
+        type: string
 
 permissions:
   contents: read
@@ -28,5 +57,12 @@ jobs:
       rootfs_version: ${{ inputs.rootfs_version || '' }}
       aleph_domain: ${{ vars.ALEPH_DOMAIN || '' }}
       aleph_retention_days: ${{ vars.ALEPH_RETENTION_DAYS || '' }}
+      deploy_vm: ${{ inputs.deploy_vm }}
+      vm_name: ${{ inputs.vm_name || 'uc-go-peer' }}
+      vm_crn_hash: ${{ inputs.vm_crn_hash || vars.ALEPH_VM_CRN_HASH || '' }}
+      vm_vcpus: ${{ inputs.vm_vcpus || '1' }}
+      vm_memory_mib: ${{ inputs.vm_memory_mib || '1024' }}
+      vm_rootfs_size_mib: ${{ inputs.vm_rootfs_size_mib || '20480' }}
     secrets:
       ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
+      VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}

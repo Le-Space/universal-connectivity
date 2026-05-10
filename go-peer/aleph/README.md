@@ -179,3 +179,58 @@ flowchart TD
   AutoTLS hostname extraction and announce-address normalization after startup.
 - `universal-connectivity/.github/workflows/build-aleph-go-peer-rootfs.yml`
   CI entrypoint for building and optionally publishing the Aleph rootfs image.
+
+## Headless VM Deploy SDK
+
+For workflow-driven VM creation, `go-peer/aleph/vm-sdk` now contains a small
+headless Aleph deploy helper that mirrors the useful parts of the deployer PWA
+without the browser wallet dependency.
+
+- `go-peer/aleph/vm-sdk/lib/aleph-vm-sdk.mjs`
+  Reusable functions for:
+  `listGeocodedCrns()`
+  `deployVm()`
+  `waitForDeploymentResult()`
+  `fetchVmRuntime()`
+  `deployVmAndWait()`
+- `.github/actions/aleph-vm-deploy/action.yml`
+  Composite GitHub Action wrapper that installs the SDK and returns:
+  host IPv4, IPv6, proxy URL, mapped ports JSON, a ready-to-use SSH command,
+  setup-endpoint reachability, and post-configure verification results.
+
+The important architectural split is:
+
+- the PWA still owns the browser signing flow
+- the SDK/action uses a headless EVM private key for GitHub Actions
+- for `uc-go-peer`, the action also publishes the required Aleph port-forward
+  aggregate, waits for runtime mappings, calls the temporary setup endpoint on
+  the mapped external port for internal `80`, and then verifies the durable
+  ports after configuration
+
+Example workflow usage:
+
+```yaml
+- name: Deploy uc-go-peer VM on Aleph
+  id: deploy_vm
+  uses: ./.github/actions/aleph-vm-deploy
+  with:
+    aleph_private_key: ${{ secrets.ALEPH_PRIVATE_KEY }}
+    name: uc-go-peer-demo
+    ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+    rootfs_item_hash: ${{ needs.build_rootfs.outputs.rootfs_item_hash }}
+    rootfs_size_mib: '20480'
+    crn_hash: ${{ vars.ALEPH_CRN_HASH }}
+    vcpus: '1'
+    memory_mib: '1024'
+    auto_configure: 'true'
+    verify_reachability: 'true'
+
+- name: Show resulting access details
+  run: |
+    echo "Host IPv4: ${{ steps.deploy_vm.outputs.host_ipv4 }}"
+    echo "Setup endpoint was reachable: ${{ steps.deploy_vm.outputs.setup_endpoint_ok }}"
+    echo "Proxy URL: ${{ steps.deploy_vm.outputs.web_proxy_url }}"
+    echo "SSH: ${{ steps.deploy_vm.outputs.ssh_command }}"
+    echo "Ports: ${{ steps.deploy_vm.outputs.mapped_ports_json }}"
+    echo "Verification: ${{ steps.deploy_vm.outputs.verification_json }}"
+```
