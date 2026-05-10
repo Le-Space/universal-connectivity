@@ -331,7 +331,7 @@ jobs:
             exit 1
           fi
 
-          item_hash="$(python3 -c 'import json, sys; from pathlib import Path; payload = json.loads(Path(sys.argv[1]).read_text()); item_hash = payload.get("item_hash", ""); raise SystemExit("Aleph pin response did not include item_hash") if not item_hash else None; print(item_hash)' "${tmp_json}")"
+          item_hash="$(python3 -c 'import json, sys; from pathlib import Path; payload = json.loads(Path(sys.argv[1]).read_text()); item_hash = payload.get("item_hash", ""); sys.exit("Aleph pin response did not include item_hash") if not item_hash else print(item_hash)' "${tmp_json}")"
 
           echo "ITEM_HASH=${item_hash}" >> "$GITHUB_ENV"
           echo "Waiting for js-peer Aleph STORE message ${item_hash} to become processed..."
