@@ -15,7 +15,7 @@ AUTOTLS_CADDY_READY_FILE = os.environ.get("AUTOTLS_CADDY_READY_FILE", "/etc/defa
 SERVICE_NAME = os.environ.get("SERVICE_NAME", "uc-go-peer.service")
 CADDY_SERVICE = os.environ.get("CADDY_SERVICE", "caddy.service")
 CADDYFILE = os.environ.get("CADDYFILE", "/etc/caddy/Caddyfile")
-WS_BACKEND_PORT = os.environ.get("WS_BACKEND_PORT", "9096").strip()
+WS_BACKEND_PORT = os.environ.get("WS_BACKEND_PORT", "9095").strip()
 WAIT_TIMEOUT_SECONDS = int(os.environ.get("AUTOTLS_WAIT_TIMEOUT_SECONDS", "900"))
 WAIT_INTERVAL_SECONDS = float(os.environ.get("AUTOTLS_WAIT_INTERVAL_SECONDS", "5"))
 
@@ -96,14 +96,9 @@ def wait_for_exact_hosts(ws_port: str) -> tuple[str, list[str], list[str]]:
     raise RuntimeError(last_error)
 
 
-def render_caddyfile(proxy_hostname: str, upstream_host: str) -> str:
+def render_caddyfile(proxy_hostname: str) -> str:
     return f"""https://{proxy_hostname} {{
-    reverse_proxy https://127.0.0.1:{WS_BACKEND_PORT} {{
-        header_up Host {upstream_host}
-        transport http {{
-            tls_server_name {upstream_host}
-        }}
-    }}
+    reverse_proxy http://127.0.0.1:{WS_BACKEND_PORT}
 }}
 """
 
@@ -113,9 +108,9 @@ def main() -> None:
         raise SystemExit(f"missing ready file: {READY_FILE}")
 
     env_values = parse_env_file(ENV_FILE)
-    ws_port = env_values.get("EXTERNAL_RELAY_WS_PORT", "").strip()
+    ws_port = env_values.get("GO_PEER_TCP_PORT", "").strip() or WS_BACKEND_PORT
     if not ws_port:
-        raise RuntimeError("missing EXTERNAL_RELAY_WS_PORT in environment file")
+        raise RuntimeError("missing GO_PEER_TCP_PORT in environment file")
 
     zone, exact_hosts, exact_logged_addrs = wait_for_exact_hosts(ws_port)
     if not exact_hosts:
@@ -127,6 +122,7 @@ def main() -> None:
 
     proxy_hostname = env_values.get("PROXY_HOSTNAME", "").strip()
     if proxy_hostname:
+        exact_announces = []
         exact_announces.append(f"/dns4/{proxy_hostname}/tcp/443/tls/ws")
         exact_announces.append(f"/dns6/{proxy_hostname}/tcp/443/tls/ws")
 
@@ -149,10 +145,9 @@ def main() -> None:
         service_restarted = True
 
     if proxy_hostname:
-        upstream_host = exact_hosts[0]
         os.makedirs(os.path.dirname(CADDYFILE), exist_ok=True)
         with open(CADDYFILE, "w", encoding="utf-8") as handle:
-            handle.write(render_caddyfile(proxy_hostname, upstream_host))
+            handle.write(render_caddyfile(proxy_hostname))
         open(AUTOTLS_CADDY_READY_FILE, "a", encoding="utf-8").close()
         subprocess.run(["systemctl", "enable", CADDY_SERVICE], check=True)
         subprocess.run(["systemctl", "restart", CADDY_SERVICE], check=True)
