@@ -57,19 +57,27 @@ inputs:
   wait_attempts:
     description: Poll attempts while waiting for Aleph to process the deployment
     required: false
-    default: '20'
+    default: '60'
   wait_delay_ms:
     description: Delay between poll attempts in milliseconds
     required: false
-    default: '4000'
+    default: '5000'
   runtime_attempts:
     description: Poll attempts while waiting for CRN runtime port mappings
     required: false
-    default: '20'
+    default: '40'
   runtime_delay_ms:
     description: Delay between runtime polling attempts in milliseconds
     required: false
-    default: '4000'
+    default: '5000'
+  rootfs_wait_attempts:
+    description: Poll attempts while waiting for the rootfs STORE message to become processed before deployment
+    required: false
+    default: '60'
+  rootfs_wait_delay_ms:
+    description: Delay between rootfs STORE status polling attempts in milliseconds
+    required: false
+    default: '5000'
   setup_attempts:
     description: Poll attempts while waiting for the temporary setup endpoint
     required: false
@@ -94,6 +102,18 @@ inputs:
     description: HTTP probe timeout in milliseconds
     required: false
     default: '10000'
+  preferred_country_code:
+    description: Preferred two-letter country code for automatic CRN selection
+    required: false
+    default: 'DE'
+  geo_crn_limit:
+    description: Maximum number of top-ranked CRNs to geolocate when choosing a preferred country
+    required: false
+    default: '30'
+  max_crn_attempts:
+    description: Maximum number of distinct CRNs to try when Aleph rejects a deployment
+    required: false
+    default: '5'
   auto_configure:
     description: Configure the uc-go-peer guest over the temporary setup endpoint after deployment
     required: false
@@ -208,12 +228,17 @@ runs:
         ALEPH_VM_WAIT_DELAY_MS: ${{ inputs.wait_delay_ms }}
         ALEPH_VM_RUNTIME_ATTEMPTS: ${{ inputs.runtime_attempts }}
         ALEPH_VM_RUNTIME_DELAY_MS: ${{ inputs.runtime_delay_ms }}
+        ALEPH_VM_ROOTFS_WAIT_ATTEMPTS: ${{ inputs.rootfs_wait_attempts }}
+        ALEPH_VM_ROOTFS_WAIT_DELAY_MS: ${{ inputs.rootfs_wait_delay_ms }}
         ALEPH_VM_SETUP_ATTEMPTS: ${{ inputs.setup_attempts }}
         ALEPH_VM_SETUP_DELAY_MS: ${{ inputs.setup_delay_ms }}
         ALEPH_VM_VERIFY_ATTEMPTS: ${{ inputs.verify_attempts }}
         ALEPH_VM_VERIFY_DELAY_MS: ${{ inputs.verify_delay_ms }}
         ALEPH_VM_TCP_TIMEOUT_MS: ${{ inputs.tcp_timeout_ms }}
         ALEPH_VM_HTTP_TIMEOUT_MS: ${{ inputs.http_timeout_ms }}
+        ALEPH_VM_PREFERRED_COUNTRY_CODE: ${{ inputs.preferred_country_code }}
+        ALEPH_VM_GEO_CRN_LIMIT: ${{ inputs.geo_crn_limit }}
+        ALEPH_VM_MAX_CRN_ATTEMPTS: ${{ inputs.max_crn_attempts }}
         ALEPH_VM_AUTO_CONFIGURE: ${{ inputs.auto_configure }}
         ALEPH_VM_VERIFY_REACHABILITY: ${{ inputs.verify_reachability }}
         ALEPH_VM_REQUIRED_PORTS_JSON: ${{ inputs.required_ports_json }}

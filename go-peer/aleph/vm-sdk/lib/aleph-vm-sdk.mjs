@@ -219,9 +219,36 @@ export async function enrichCrnsWithGeo(crns) {
   )
 }
 
-export async function listGeocodedCrns(url = CRN_LIST_URL) {
-  const crns = await enrichCrnsWithGeo(await fetchCrns(url))
-  return crns
+function normalizeCountryCode(value) {
+  const normalized = asString(value)?.toUpperCase() ?? null
+  return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : null
+}
+
+function compatibleCrns(crns, excludedHashes = []) {
+  const excluded = new Set((excludedHashes ?? []).filter(Boolean))
+  return [...(crns ?? [])].filter((crn) => {
+    if (!crn?.hash || excluded.has(crn.hash)) return false
+    if (crn.qemu_support === false) return false
+    if (crn.system_usage?.active === false) return false
+    return true
+  })
+}
+
+function scoreSortedCrns(crns) {
+  return [...(crns ?? [])].sort((left, right) => {
+    const rightScore = typeof right.score === 'number' ? right.score : Number(right.score ?? Number.NEGATIVE_INFINITY)
+    const leftScore = typeof left.score === 'number' ? left.score : Number(left.score ?? Number.NEGATIVE_INFINITY)
+    if (rightScore !== leftScore) return rightScore - leftScore
+    const leftName = (left.name || left.address || left.hash).toLowerCase()
+    const rightName = (right.name || right.address || right.hash).toLowerCase()
+    return leftName.localeCompare(rightName)
+  })
+}
+
+export async function listGeocodedCrns(url = CRN_LIST_URL, limit = 30) {
+  const sortedCrns = scoreSortedCrns(compatibleCrns(await fetchCrns(url)))
+  const geocodedCrns = await enrichCrnsWithGeo(sortedCrns.slice(0, Math.max(1, Number(limit) || 30)))
+  return geocodedCrns
     .filter((crn) => Boolean(crn.city || crn.region || crn.country || crn.country_code))
     .sort((left, right) => {
       const leftLabel = `${left.country ?? ''}/${left.region ?? ''}/${left.city ?? ''}/${left.name ?? left.hash}`.toLowerCase()
@@ -230,21 +257,31 @@ export async function listGeocodedCrns(url = CRN_LIST_URL) {
     })
 }
 
-export function selectPreferredCrn(crns) {
-  return [...(crns ?? [])]
-    .filter((crn) => {
-      if (crn.qemu_support === false) return false
-      if (crn.system_usage?.active === false) return false
-      return true
-    })
-    .sort((left, right) => {
-      const rightScore = typeof right.score === 'number' ? right.score : Number(right.score ?? Number.NEGATIVE_INFINITY)
-      const leftScore = typeof left.score === 'number' ? left.score : Number(left.score ?? Number.NEGATIVE_INFINITY)
-      if (rightScore !== leftScore) return rightScore - leftScore
-      const leftName = (left.name || left.address || left.hash).toLowerCase()
-      const rightName = (right.name || right.address || right.hash).toLowerCase()
-      return leftName.localeCompare(rightName)
-    })[0] ?? null
+export async function rankCandidateCrns(crns, options = {}) {
+  const preferredCountryCode = normalizeCountryCode(options.preferredCountryCode)
+  const geoLimit = Math.max(1, Number(options.geoLimit) || 30)
+  const sortedCrns = scoreSortedCrns(compatibleCrns(crns, options.excludedHashes))
+  if (!preferredCountryCode || sortedCrns.length === 0) {
+    return sortedCrns
+  }
+
+  const enrichedTopCrns = await enrichCrnsWithGeo(sortedCrns.slice(0, geoLimit))
+  const mergedByHash = new Map(enrichedTopCrns.map((crn) => [crn.hash, crn]))
+  const mergedCrns = sortedCrns.map((crn) => mergedByHash.get(crn.hash) ?? crn)
+  const originalIndex = new Map(mergedCrns.map((crn, index) => [crn.hash, index]))
+
+  return [...mergedCrns].sort((left, right) => {
+    const leftPreferred = normalizeCountryCode(left.country_code) === preferredCountryCode ? 1 : 0
+    const rightPreferred = normalizeCountryCode(right.country_code) === preferredCountryCode ? 1 : 0
+    if (leftPreferred !== rightPreferred) {
+      return rightPreferred - leftPreferred
+    }
+    return (originalIndex.get(left.hash) ?? Number.MAX_SAFE_INTEGER) - (originalIndex.get(right.hash) ?? Number.MAX_SAFE_INTEGER)
+  })
+}
+
+export async function selectPreferredCrn(crns, options = {}) {
+  return (await rankCandidateCrns(crns, options))[0] ?? null
 }
 
 export function signaturePayload(message) {
@@ -531,7 +568,15 @@ export async function ensureInstancePortForwards(args) {
 
 export async function deployVm(args) {
   const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL))
-  const selectedCrn = args.crnHash ? findCrnByHash(crns, args.crnHash) : selectPreferredCrn(crns)
+  const selectedCrn =
+    args.selectedCrn ??
+    (args.crnHash
+      ? findCrnByHash(crns, args.crnHash)
+      : await selectPreferredCrn(crns, {
+          excludedHashes: args.excludedCrnHashes,
+          preferredCountryCode: args.preferredCountryCode,
+          geoLimit: args.geoCrnLimit
+        }))
   if (!selectedCrn) {
     throw new Error('No compatible CRN was available for deployment.')
   }
@@ -572,24 +617,38 @@ export async function fetchMessageEnvelope(itemHash, apiHost = ALEPH_API_HOST) {
   return payload
 }
 
-export async function inspectDeploymentResult(itemHash, rootfsRef, apiHost = ALEPH_API_HOST) {
+export async function inspectMessageResult(itemHash, apiHost = ALEPH_API_HOST, label = 'Message') {
   const payload = await fetchMessageEnvelope(itemHash, apiHost)
   if (!payload) {
     return {
       status: 'unknown',
       errorCode: null,
       details: null,
-      rejectionReason: `Deployment message ${itemHash} was not found on Aleph.`
+      rejectionReason: `${label} ${itemHash} was not found on Aleph.`
     }
   }
 
   const status = normalizeMessageStatus(payload.status)
   const errorCode = typeof payload.error_code === 'number' ? payload.error_code : null
   const details = payload.details && typeof payload.details === 'object' ? payload.details : null
+  const rejectionReason =
+    status === 'rejected' ? `${label} ${itemHash} was rejected by Aleph${errorCode ? ` (error ${errorCode})` : ''}.` : null
+
+  return {
+    status,
+    errorCode,
+    details,
+    rejectionReason
+  }
+}
+
+export async function inspectDeploymentResult(itemHash, rootfsRef, apiHost = ALEPH_API_HOST) {
+  const inspected = await inspectMessageResult(itemHash, apiHost, 'Deployment message')
+  const { status, errorCode, details } = inspected
   let rejectionReason = null
 
   if (status === 'rejected') {
-    if (rootfsRef && Array.isArray(payload.details?.errors) && payload.details.errors.includes(rootfsRef)) {
+    if (rootfsRef && Array.isArray(details?.errors) && details.errors.includes(rootfsRef)) {
       rejectionReason =
         `Aleph rejected this deployment because the referenced rootfs STORE message ${rootfsRef} is not ready.`
     } else {
@@ -615,6 +674,30 @@ export async function waitForDeploymentResult(itemHash, rootfsRef, apiHost = ALE
     lastResult = await inspectDeploymentResult(itemHash, rootfsRef, apiHost)
   }
   return lastResult
+}
+
+async function waitForRequiredMessage(itemHash, options = {}) {
+  const label = options.label ?? 'Message'
+  const apiHost = options.apiHost ?? ALEPH_API_HOST
+  const attempts = Math.max(1, Number(options.attempts ?? 60))
+  const delayMs = Math.max(250, Number(options.delayMs ?? 5000))
+
+  let lastResult = await inspectMessageResult(itemHash, apiHost, label)
+  for (let attempt = 1; attempt < attempts; attempt += 1) {
+    if (lastResult.status === 'processed' || lastResult.status === 'rejected') {
+      break
+    }
+    await sleep(delayMs)
+    lastResult = await inspectMessageResult(itemHash, apiHost, label)
+  }
+
+  if (lastResult.status === 'processed') {
+    return lastResult
+  }
+  if (lastResult.status === 'rejected') {
+    throw new Error(lastResult.rejectionReason ?? `${label} ${itemHash} was rejected by Aleph.`)
+  }
+  throw new Error(`${label} ${itemHash} stayed ${lastResult.status} after waiting ${attempts} attempts with ${delayMs}ms delay.`)
 }
 
 async function fetchSchedulerAllocation(itemHash) {
@@ -954,7 +1037,75 @@ export async function verifyUcGoPeerReachability(args) {
 }
 
 export async function deployVmAndWait(args) {
-  const deployment = await deployVm(args)
+  await waitForRequiredMessage(args.rootfsItemHash, {
+    label: 'Rootfs STORE message',
+    apiHost: args.apiHost ?? ALEPH_API_HOST,
+    attempts: Number(args.rootfsWaitAttempts ?? args.waitAttempts ?? 60),
+    delayMs: Number(args.rootfsWaitDelayMs ?? args.waitDelayMs ?? 5000)
+  })
+
+  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL))
+  const candidateCrns =
+    args.crnHash && findCrnByHash(crns, args.crnHash)
+      ? [findCrnByHash(crns, args.crnHash)]
+      : await rankCandidateCrns(crns, {
+          preferredCountryCode: args.preferredCountryCode,
+          geoLimit: args.geoCrnLimit,
+          excludedHashes: args.excludedCrnHashes
+        })
+
+  const maxCrnAttempts = Math.max(1, Number(args.maxCrnAttempts ?? 5))
+  const attemptedCrns = []
+  let deployment = null
+  let deploymentResult = null
+  let lastRejection = null
+
+  for (const candidateCrn of candidateCrns.slice(0, maxCrnAttempts)) {
+    attemptedCrns.push(candidateCrn)
+    deployment = await deployVm({
+      ...args,
+      crns,
+      selectedCrn: candidateCrn,
+      crnHash: candidateCrn.hash
+    })
+    deploymentResult = await waitForDeploymentResult(
+      deployment.itemHash,
+      args.rootfsItemHash,
+      args.apiHost ?? ALEPH_API_HOST,
+      Number(args.waitAttempts ?? 60),
+      Number(args.waitDelayMs ?? 5000)
+    )
+
+    if (deploymentResult.status === 'processed') {
+      break
+    }
+    if (deploymentResult.status === 'rejected') {
+      lastRejection = {
+        candidateCrn,
+        deployment,
+        deploymentResult
+      }
+      deployment = null
+      deploymentResult = null
+      continue
+    }
+
+    throw new Error(
+      `Deployment message ${deployment.itemHash} on CRN ${candidateCrn.name ?? candidateCrn.hash} stayed ${deploymentResult.status} without becoming processed.`
+    )
+  }
+
+  if (!deployment || !deploymentResult) {
+    const rejectionSummary =
+      lastRejection?.deploymentResult?.rejectionReason ??
+      (lastRejection
+        ? `Aleph rejected the last deployment attempt on ${lastRejection.candidateCrn?.name ?? lastRejection.candidateCrn?.hash}.`
+        : 'No compatible CRN deployment attempt succeeded.')
+    throw new Error(
+      `${rejectionSummary} Tried ${attemptedCrns.map((crn) => crn.name ?? crn.hash).join(', ')}.`
+    )
+  }
+
   const portForwarding = await ensureInstancePortForwards({
     sender: deployment.sender,
     instanceItemHash: deployment.itemHash,
@@ -963,13 +1114,6 @@ export async function deployVmAndWait(args) {
     channel: args.channel,
     apiHost: args.apiHost ?? ALEPH_API_HOST
   })
-  const deploymentResult = await waitForDeploymentResult(
-    deployment.itemHash,
-    args.rootfsItemHash,
-    args.apiHost ?? ALEPH_API_HOST,
-    Number(args.waitAttempts ?? 15),
-    Number(args.waitDelayMs ?? 4000)
-  )
 
   const runtime =
     deploymentResult.status === 'processed'
@@ -977,10 +1121,14 @@ export async function deployVmAndWait(args) {
           itemHash: deployment.itemHash,
           crnHash: deployment.selectedCrn?.hash ?? args.crnHash,
           crnListUrl: args.crnListUrl,
-          attempts: args.runtimeAttempts ?? args.waitAttempts ?? 20,
-          delayMs: args.runtimeDelayMs ?? args.waitDelayMs ?? 4000
+          attempts: args.runtimeAttempts ?? args.waitAttempts ?? 40,
+          delayMs: args.runtimeDelayMs ?? args.waitDelayMs ?? 5000
         })
       : null
+
+  if (!runtime?.hostIpv4 || Object.keys(runtime?.mappedPorts ?? {}).length === 0) {
+    throw new Error(`VM ${deployment.itemHash} was processed but did not publish runtime host IPv4 and mapped ports in time.`)
+  }
 
   let configuration = null
   let verification = null

@@ -45,6 +45,21 @@ on:
         required: false
         default: '20480'
         type: string
+      vm_preferred_country_code:
+        description: Preferred two-letter country code for automatic CRN selection
+        required: false
+        default: DE
+        type: string
+      vm_geo_crn_limit:
+        description: Maximum number of top-ranked CRNs to geolocate when preferring a country
+        required: false
+        default: '30'
+        type: string
+      vm_max_crn_attempts:
+        description: Maximum number of distinct CRNs to try when Aleph rejects a deployment
+        required: false
+        default: '5'
+        type: string
 
 permissions:
   contents: read
@@ -68,6 +83,9 @@ jobs:
       vm_vcpus: ${{ inputs.vm_vcpus || '1' }}
       vm_memory_mib: ${{ inputs.vm_memory_mib || '1024' }}
       vm_rootfs_size_mib: ${{ inputs.vm_rootfs_size_mib || '20480' }}
+      vm_preferred_country_code: ${{ inputs.vm_preferred_country_code || 'DE' }}
+      vm_geo_crn_limit: ${{ inputs.vm_geo_crn_limit || '30' }}
+      vm_max_crn_attempts: ${{ inputs.vm_max_crn_attempts || '5' }}
     secrets:
       ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
       VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}

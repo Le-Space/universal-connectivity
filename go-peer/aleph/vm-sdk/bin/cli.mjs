@@ -63,7 +63,10 @@ async function main() {
   const mode = optional('ALEPH_VM_MODE', 'deploy')
 
   if (mode === 'list-crns') {
-    const geocodedCrns = await listGeocodedCrns(optional('ALEPH_VM_CRN_LIST_URL', CRN_LIST_URL))
+    const geocodedCrns = await listGeocodedCrns(
+      optional('ALEPH_VM_CRN_LIST_URL', CRN_LIST_URL),
+      asInteger('ALEPH_VM_GEO_CRN_LIMIT', 30)
+    )
     const payload = JSON.stringify(geocodedCrns)
     await appendOutput('geocoded_crns_json', payload)
     await appendOutput('geocoded_crn_count', geocodedCrns.length)
@@ -97,8 +100,13 @@ async function main() {
     setupDelayMs: asInteger('ALEPH_VM_SETUP_DELAY_MS', 4000),
     verifyAttempts: asInteger('ALEPH_VM_VERIFY_ATTEMPTS', 25),
     verifyDelayMs: asInteger('ALEPH_VM_VERIFY_DELAY_MS', 5000),
+    rootfsWaitAttempts: asInteger('ALEPH_VM_ROOTFS_WAIT_ATTEMPTS', 60),
+    rootfsWaitDelayMs: asInteger('ALEPH_VM_ROOTFS_WAIT_DELAY_MS', 5000),
     tcpTimeoutMs: asInteger('ALEPH_VM_TCP_TIMEOUT_MS', 5000),
     httpTimeoutMs: asInteger('ALEPH_VM_HTTP_TIMEOUT_MS', 10000),
+    preferredCountryCode: optional('ALEPH_VM_PREFERRED_COUNTRY_CODE', 'DE'),
+    geoCrnLimit: asInteger('ALEPH_VM_GEO_CRN_LIMIT', 30),
+    maxCrnAttempts: asInteger('ALEPH_VM_MAX_CRN_ATTEMPTS', 5),
     autoConfigure: asBoolean('ALEPH_VM_AUTO_CONFIGURE', true),
     verifyReachability: asBoolean('ALEPH_VM_VERIFY_REACHABILITY', true),
     requiredPorts: asJson('ALEPH_VM_REQUIRED_PORTS_JSON', JSON.stringify(defaultRequiredPorts())),
@@ -106,6 +114,7 @@ async function main() {
   })
 
   const runtime = deployResult.runtime
+  const selectedCrn = runtime?.selectedCrn ?? deployResult.selectedCrn ?? null
   const runtimeJson = JSON.stringify(runtime ?? {})
   const mappedPortsJson = JSON.stringify(runtime?.mappedPorts ?? {})
   const portForwardingJson = JSON.stringify(deployResult.portForwarding ?? {})
@@ -118,8 +127,8 @@ async function main() {
   await appendOutput('instance_http_status', deployResult.httpStatus)
   await appendOutput('port_forward_aggregate_item_hash', deployResult.portForwarding?.aggregateItemHash ?? '')
   await appendOutput('port_forward_status', deployResult.portForwarding?.aggregateStatus ?? '')
-  await appendOutput('crn_hash', runtime?.selectedCrn?.hash ?? '')
-  await appendOutput('crn_name', runtime?.selectedCrn?.name ?? '')
+  await appendOutput('crn_hash', selectedCrn?.hash ?? '')
+  await appendOutput('crn_name', selectedCrn?.name ?? '')
   await appendOutput('crn_url', runtime?.allocation?.crnUrl ?? '')
   await appendOutput('host_ipv4', runtime?.hostIpv4 ?? '')
   await appendOutput('ipv6', runtime?.ipv6 ?? '')
@@ -139,7 +148,7 @@ async function main() {
     `- Instance item hash: \`${deployResult.itemHash}\``,
     `- Deployment status: \`${deployResult.deploymentResult.status}\``,
     `- Port-forward aggregate status: \`${deployResult.portForwarding?.aggregateStatus ?? 'unknown'}\``,
-    `- CRN: \`${runtime?.selectedCrn?.name ?? runtime?.selectedCrn?.hash ?? 'unknown'}\``,
+    `- CRN: \`${selectedCrn?.name ?? selectedCrn?.hash ?? 'unknown'}\``,
     `- CRN URL: \`${runtime?.allocation?.crnUrl ?? 'unknown'}\``,
     `- Host IPv4: \`${runtime?.hostIpv4 ?? 'unknown'}\``,
     `- IPv6: \`${runtime?.ipv6 ?? 'unknown'}\``,
