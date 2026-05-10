@@ -266,6 +266,12 @@ jobs:
         with:
           node-version: '24.x'
 
+      - name: Install js-peer publish helpers
+        if: ${{ inputs.publish }}
+        working-directory: universal-connectivity
+        run: |
+          python3 -m pip install requests 'py-cid @ git+https://github.com/ipld/py-cid.git@b13b51774ac3309c3c28a8da6eeab6d1e75dcddc'
+
       - name: Build js-peer site with latest rootfs manifest
         if: ${{ inputs.publish }}
         working-directory: universal-connectivity/js-peer
@@ -273,14 +279,81 @@ jobs:
           npm ci
           npm run build
 
-      - name: Deploy js-peer site with rootfs manifest on Aleph
+      - name: Upload js-peer site to IPFS
         if: ${{ inputs.publish }}
         id: deploy_site
-        uses: aleph-im/web3-hosting-action@v1.1.4
-        with:
-          path: universal-connectivity/js-peer/out
-          private-key: ${{ env.ALEPH_PRIVATE_KEY }}
-          retention_days: ${{ inputs.aleph_retention_days }}
+        working-directory: universal-connectivity
+        run: |
+          set -euo pipefail
+
+          result="$(python3 go-peer/aleph/publish-static-site.py js-peer/out)"
+          echo "${result}" | tee /tmp/js-peer-ipfs-upload.json
+
+          ipfs_cid_v0="$(echo "${result}" | jq -r '.cid_v0')"
+          ipfs_cid_v1="$(echo "${result}" | jq -r '.cid_v1')"
+
+          if [[ -z "${ipfs_cid_v0}" || -z "${ipfs_cid_v1}" || "${ipfs_cid_v0}" == "null" || "${ipfs_cid_v1}" == "null" ]]; then
+            echo "Failed to extract IPFS CIDs from upload result: ${result}" >&2
+            exit 1
+          fi
+
+          echo "IPFS_CID_V0=${ipfs_cid_v0}" >> "$GITHUB_ENV"
+          echo "IPFS_CID_V1=${ipfs_cid_v1}" >> "$GITHUB_ENV"
+          echo "URL=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_ENV"
+          echo "url=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_OUTPUT"
+
+      - name: Pin js-peer site on Aleph
+        if: ${{ inputs.publish }}
+        working-directory: universal-connectivity
+        run: |
+          set -euo pipefail
+
+          tmp_json="$(mktemp)"
+          err_log="$(mktemp)"
+          status_response="$(mktemp)"
+
+          echo "Pinning js-peer IPFS CID ${IPFS_CID_V0} on Aleph..."
+          if ! aleph file pin "${IPFS_CID_V0}" >"${tmp_json}" 2>"${err_log}"; then
+            echo "Aleph pin failed for js-peer CID ${IPFS_CID_V0}" >&2
+            if [[ -s "${err_log}" ]]; then
+              echo "--- aleph stderr ---" >&2
+              cat "${err_log}" >&2
+            fi
+            if [[ -s "${tmp_json}" ]]; then
+              echo "--- aleph stdout ---" >&2
+              cat "${tmp_json}" >&2
+            fi
+            exit 1
+          fi
+
+          if [[ ! -s "${tmp_json}" ]]; then
+            echo "Aleph pin returned an empty response for js-peer CID ${IPFS_CID_V0}" >&2
+            exit 1
+          fi
+
+          item_hash="$(
+            python3 - "${tmp_json}" <<'PY'
+            import json
+            import sys
+            from pathlib import Path
+
+            payload = json.loads(Path(sys.argv[1]).read_text())
+            item_hash = payload.get("item_hash", "")
+            if not item_hash:
+                raise SystemExit("Aleph pin response did not include item_hash")
+            print(item_hash)
+            PY
+          )"
+
+          echo "ITEM_HASH=${item_hash}" >> "$GITHUB_ENV"
+          echo "Waiting for js-peer Aleph STORE message ${item_hash} to become processed..."
+          python3 go-peer/aleph/wait-for-aleph-message.py \
+            "https://api2.aleph.im" \
+            "${item_hash}" \
+            60 \
+            5 \
+            > "${status_response}"
+          cat "${status_response}"
 
       - name: Link production domain on Aleph as IPFS
         if: ${{ inputs.publish && github.ref == 'refs/heads/main' && inputs.aleph_domain != '' }}
