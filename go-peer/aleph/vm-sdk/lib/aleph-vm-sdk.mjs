@@ -222,7 +222,7 @@ function isIpAddress(host) {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(':')
 }
 
-async function resolveHostIp(host, trace = null) {
+async function resolveHostIp(host) {
   if (!host) return null
   if (isIpAddress(host)) return host
 
@@ -232,7 +232,7 @@ async function resolveHostIp(host, trace = null) {
     url.searchParams.set('type', type)
     url.searchParams.set('edns_client_subnet', '0.0.0.0/0')
 
-    const { response, payload } = await fetchJson(url, {}, 30000, 3, trace)
+    const { response, payload } = await fetchJson(url)
     if (!response.ok) continue
 
     const record = Array.isArray(payload?.Answer)
@@ -257,10 +257,10 @@ function countryNameFromCode(value) {
   }
 }
 
-async function lookupIpLocation(ip, trace = null) {
+async function lookupIpLocation(ip) {
   const url = new URL(`${COUNTRY_IS_API_BASE_URL}/${encodeURIComponent(ip)}`)
   url.searchParams.set('fields', 'city,subdivision')
-  const { response, payload } = await fetchJson(url, {}, 30000, 3, trace)
+  const { response, payload } = await fetchJson(url)
   if (!response.ok) {
     return {
       resolved_ip: ip,
@@ -284,7 +284,11 @@ async function lookupIpLocation(ip, trace = null) {
 }
 
 export async function enrichCrnsWithGeo(crns, trace = null) {
-  return Promise.all(
+  emitTrace(trace, 'geo-lookup-start', {
+    crnCount: Array.isArray(crns) ? crns.length : 0
+  })
+
+  const enriched = await Promise.all(
     crns.map(async (crn) => {
       if (crn.city || crn.region || crn.country || crn.country_code) {
         return crn
@@ -292,10 +296,10 @@ export async function enrichCrnsWithGeo(crns, trace = null) {
 
       try {
         const host = lookupHost(crn.address)
-        const ip = await resolveHostIp(host, trace)
+        const ip = await resolveHostIp(host)
         if (!ip) return crn
 
-        const geo = await lookupIpLocation(ip, trace)
+        const geo = await lookupIpLocation(ip)
         return {
           ...crn,
           ...geo
@@ -305,6 +309,15 @@ export async function enrichCrnsWithGeo(crns, trace = null) {
       }
     })
   )
+
+  emitTrace(trace, 'geo-lookup-end', {
+    crnCount: Array.isArray(enriched) ? enriched.length : 0,
+    geocodedCount: Array.isArray(enriched)
+      ? enriched.filter((crn) => Boolean(crn.city || crn.region || crn.country || crn.country_code)).length
+      : 0
+  })
+
+  return enriched
 }
 
 function normalizeCountryCode(value) {
@@ -909,7 +922,11 @@ async function fetchSchedulerAllocation(itemHash, trace = null) {
 async function fetch2n6WebAccessUrl(instanceItemHash, trace = null) {
   const { response, payload } = await fetchJson(`${TWO_N_SIX_HASH_URL}/${instanceItemHash}`, {}, 30000, 3, trace)
   if (!response.ok) return null
-  return normalizeProxyUrl(payload?.url ?? payload?.subdomain)
+  return {
+    url: normalizeProxyUrl(payload?.url ?? payload?.subdomain),
+    active: typeof payload?.active === 'boolean' ? payload.active : null,
+    subdomain: asString(payload?.subdomain)
+  }
 }
 
 async function fetchCrnExecutionMap(crnUrl, trace = null) {
@@ -1020,6 +1037,88 @@ function findCrnByHash(crns, crnHash) {
   return crns.find((crn) => crn.hash === crnHash) ?? null
 }
 
+function describeRuntimeAvailability(runtime) {
+  const execution = runtime?.execution ?? null
+  const mappedPorts = runtime?.mappedPorts ?? {}
+  const hostIpv4 = runtime?.hostIpv4 ?? null
+  const proxyUrl = runtime?.proxyUrl ?? null
+  const schedulerSource = runtime?.allocation?.source ?? null
+  const webAccessActive = runtime?.webAccess?.active ?? null
+  const mappedPortCount = Object.keys(mappedPorts).length
+
+  if (hostIpv4 && mappedPortCount > 0) {
+    return {
+      state: 'ready',
+      reason: null,
+      schedulerSource,
+      executionSeen: Boolean(execution),
+      webAccessActive,
+      mappedPortCount,
+      proxyUrl
+    }
+  }
+
+  if (!execution && proxyUrl && webAccessActive === false) {
+    return {
+      state: 'proxy-reserved-inactive',
+      reason:
+        'Aleph reserved a proxy URL for the VM, but it is still inactive and the selected CRN has not exposed execution networking yet.',
+      schedulerSource,
+      executionSeen: false,
+      webAccessActive,
+      mappedPortCount,
+      proxyUrl
+    }
+  }
+
+  if (!execution && schedulerSource === 'manual') {
+    return {
+      state: 'crn-execution-missing',
+      reason:
+        'The deployment is pinned to a specific CRN, but that CRN is not exposing this VM in its execution list yet.',
+      schedulerSource,
+      executionSeen: false,
+      webAccessActive,
+      mappedPortCount,
+      proxyUrl
+    }
+  }
+
+  if (execution && !hostIpv4) {
+    return {
+      state: 'execution-missing-host-ipv4',
+      reason: 'The CRN exposed an execution record, but it does not include a public host IPv4 yet.',
+      schedulerSource,
+      executionSeen: true,
+      webAccessActive,
+      mappedPortCount,
+      proxyUrl
+    }
+  }
+
+  if (execution && mappedPortCount === 0) {
+    return {
+      state: 'execution-missing-port-mappings',
+      reason: 'The CRN exposed an execution record, but mapped ports are still empty.',
+      schedulerSource,
+      executionSeen: true,
+      webAccessActive,
+      mappedPortCount,
+      proxyUrl
+    }
+  }
+
+  return {
+    state: 'runtime-pending',
+    reason: 'Aleph has not exposed enough runtime networking details yet.',
+    schedulerSource,
+    executionSeen: Boolean(execution),
+    webAccessActive,
+    mappedPortCount,
+    proxyUrl
+  }
+}
+
 export async function fetchVmRuntime(args) {
   const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL, args.trace))
   const schedulerAllocation = await fetchSchedulerAllocation(args.itemHash, args.trace).catch(() => null)
@@ -1037,7 +1136,8 @@ export async function fetchVmRuntime(args) {
         }
       : null)
 
-  const webAccessUrl = await fetch2n6WebAccessUrl(args.itemHash, args.trace).catch(() => null)
+  const webAccess = await fetch2n6WebAccessUrl(args.itemHash, args.trace).catch(() => null)
+  const webAccessUrl = webAccess?.url ?? null
   let execution = null
 
   if (allocation?.crnUrl) {
@@ -1060,7 +1160,17 @@ export async function fetchVmRuntime(args) {
     itemHash: args.itemHash,
     allocation,
     execution,
-    webAccessUrl,
+    webAccess,
+    hostIpv4,
+    ipv6,
+    proxyUrl,
+    mappedPorts: execution?.networking?.mapped_ports ?? {}
+  })
+
+  const diagnostics = describeRuntimeAvailability({
+    allocation,
+    execution,
+    webAccess,
     hostIpv4,
     ipv6,
     proxyUrl,
@@ -1070,11 +1180,13 @@ export async function fetchVmRuntime(args) {
   return {
     allocation,
     execution,
+    webAccess,
     webAccessUrl,
     hostIpv4,
     ipv6,
     proxyUrl,
     mappedPorts: execution?.networking?.mapped_ports ?? {},
+    diagnostics,
     sshCommand: hostIpv4 && sshPort ? `ssh root@${hostIpv4} -p ${sshPort}` : ipv6 ? `ssh root@${ipv6}` : null,
     selectedCrn
   }
@@ -1082,13 +1194,30 @@ export async function fetchVmRuntime(args) {
 
 export async function waitForVmRuntime(args) {
   let lastRuntime = null
-  for (let attempt = 0; attempt < Number(args.attempts ?? 20); attempt += 1) {
+  const attempts = Number(args.attempts ?? 20)
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     lastRuntime = await fetchVmRuntime(args)
     const mappedPorts = lastRuntime?.mappedPorts ?? {}
     if (lastRuntime?.hostIpv4 && Object.keys(mappedPorts).length > 0) {
       return lastRuntime
     }
+    if (attempt === 0 || attempt === attempts - 1 || (attempt + 1) % 5 === 0) {
+      emitTrace(args.trace ?? null, 'vm-runtime-wait', {
+        itemHash: args.itemHash,
+        attempt: attempt + 1,
+        attempts,
+        state: lastRuntime?.diagnostics?.state ?? 'runtime-pending',
+        reason: lastRuntime?.diagnostics?.reason ?? null,
+        hostIpv4: lastRuntime?.hostIpv4 ?? null,
+        mappedPortCount: Object.keys(mappedPorts).length,
+        proxyUrl: lastRuntime?.proxyUrl ?? null,
+        webAccessActive: lastRuntime?.webAccess?.active ?? null
+      })
+    }
     await sleep(Number(args.delayMs ?? 4000))
+  }
+  if (lastRuntime?.diagnostics) {
+    lastRuntime.diagnostics.timedOut = true
   }
   return lastRuntime
 }
@@ -1341,13 +1470,13 @@ export async function deployVmAndWait(args) {
       })
       log(
         'warning',
-        `Deployment ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash} was processed but did not expose runtime networking in time.${runtime?.proxyUrl ? ` Proxy URL: ${runtime.proxyUrl}.` : ''}`
+        `Deployment ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash} was processed but did not expose runtime networking in time.${runtime?.diagnostics?.reason ? ` ${runtime.diagnostics.reason}` : ''}${runtime?.proxyUrl ? ` Proxy URL: ${runtime.proxyUrl}.` : ''}`
       )
       const cleanup = await cleanupFailedDeployment({
         privateKey: args.privateKey,
         sender: deployment.sender,
         instanceItemHash: deployment.itemHash,
-        reason: 'Processed deployment never exposed runtime networking',
+        reason: `Processed deployment never exposed runtime networking${runtime?.diagnostics?.state ? ` (${runtime.diagnostics.state})` : ''}`,
         channel: args.channel,
         apiHost: args.apiHost ?? ALEPH_API_HOST,
         trace

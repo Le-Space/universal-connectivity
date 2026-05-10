@@ -112,6 +112,8 @@ async function emitDeployOutputs(deployResult) {
     `- Web proxy URL: \`${runtime?.proxyUrl ?? 'unknown'}\``,
     `- SSH command: \`${runtime?.sshCommand ?? 'unknown'}\``,
     `- Setup endpoint reachable before configure: \`${runtime?.setupHealth?.ok ?? 'unknown'}\``,
+    `- Runtime diagnostics: \`${runtime?.diagnostics?.state ?? 'unknown'}${runtime?.diagnostics?.timedOut ? ' (timed out)' : ''}\``,
+    `- Runtime reason: \`${runtime?.diagnostics?.reason ?? 'none'}\``,
     `- Verification ok: \`${deployResult?.verification?.ok ?? 'unknown'}\``,
     '',
     '### Port mappings',
