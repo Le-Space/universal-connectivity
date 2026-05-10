@@ -1107,10 +1107,12 @@ export async function deployVmAndWait(args) {
       deploymentResult = null
       continue
     }
+    if (deploymentResult.status !== 'processed') {
+      throw new Error(
+        `Deployment message ${deployment.itemHash} on CRN ${candidateCrn.name ?? candidateCrn.hash} stayed ${deploymentResult.status} without becoming processed.`
+      )
+    }
 
-    throw new Error(
-      `Deployment message ${deployment.itemHash} on CRN ${candidateCrn.name ?? candidateCrn.hash} stayed ${deploymentResult.status} without becoming processed.`
-    )
     const portForwarding = await ensureInstancePortForwards({
       sender: deployment.sender,
       instanceItemHash: deployment.itemHash,
