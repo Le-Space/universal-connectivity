@@ -1061,6 +1061,9 @@ export async function verifyUcGoPeerReachability(args) {
 }
 
 export async function deployVmAndWait(args) {
+  const log = typeof args.log === 'function' ? args.log : () => {}
+
+  log('notice', `Waiting for rootfs STORE message ${args.rootfsItemHash} to become processed before VM deployment.`)
   await waitForRequiredMessage(args.rootfsItemHash, {
     label: 'Rootfs STORE message',
     apiHost: args.apiHost ?? ALEPH_API_HOST,
@@ -1087,6 +1090,10 @@ export async function deployVmAndWait(args) {
 
   for (const candidateCrn of candidateCrns.slice(0, maxCrnAttempts)) {
     attemptedCrns.push(candidateCrn)
+    log(
+      'notice',
+      `Trying CRN ${attemptedCrns.length}/${Math.min(candidateCrns.length, maxCrnAttempts)}: ${candidateCrn.name ?? candidateCrn.hash} (${candidateCrn.hash}).`
+    )
     deployment = await deployVm({
       ...args,
       crns,
@@ -1102,9 +1109,14 @@ export async function deployVmAndWait(args) {
     )
 
     if (deploymentResult.status === 'processed') {
+      log('notice', `Deployment message ${deployment.itemHash} was processed on ${candidateCrn.name ?? candidateCrn.hash}.`)
       break
     }
     if (deploymentResult.status === 'rejected') {
+      log(
+        'warning',
+        `Deployment on ${candidateCrn.name ?? candidateCrn.hash} was rejected: ${deploymentResult.rejectionReason ?? 'no additional rejection reason from Aleph'}.`
+      )
       lastRejection = {
         candidateCrn,
         deployment,
@@ -1147,6 +1159,10 @@ export async function deployVmAndWait(args) {
     })
 
     if (!runtime?.hostIpv4 || Object.keys(runtime?.mappedPorts ?? {}).length === 0) {
+      log(
+        'warning',
+        `Deployment ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash} was processed but did not expose runtime networking in time.${runtime?.proxyUrl ? ` Proxy URL: ${runtime.proxyUrl}.` : ''}`
+      )
       lastPartialResult = {
         ...deployment,
         attemptedCrns,
@@ -1220,6 +1236,10 @@ export async function deployVmAndWait(args) {
       runtime.setupHealth = setupHealth
     }
 
+    log(
+      'notice',
+      `Deployment ${deployment.itemHash} is reachable on host IPv4 ${runtime.hostIpv4}.${runtime.proxyUrl ? ` Proxy URL: ${runtime.proxyUrl}.` : ''}`
+    )
     return {
       ...deployment,
       attemptedCrns,

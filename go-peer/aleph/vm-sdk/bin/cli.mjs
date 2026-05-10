@@ -59,6 +59,15 @@ async function appendSummary(lines) {
   await appendFile(summaryFile, `${lines.join('\n')}\n`)
 }
 
+function actionLog(level, message) {
+  const normalizedLevel = ['notice', 'warning', 'error'].includes(level) ? level : 'notice'
+  const escaped = String(message).replace(/\r?\n/g, '%0A')
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    process.stderr.write(`::${normalizedLevel}::${escaped}\n`)
+  }
+  process.stderr.write(`${message}\n`)
+}
+
 async function emitDeployOutputs(deployResult) {
   const runtime = deployResult?.runtime ?? null
   const selectedCrn = runtime?.selectedCrn ?? deployResult?.selectedCrn ?? null
@@ -172,10 +181,12 @@ async function main() {
     autoConfigure: asBoolean('ALEPH_VM_AUTO_CONFIGURE', true),
     verifyReachability: asBoolean('ALEPH_VM_VERIFY_REACHABILITY', true),
     requiredPorts: asJson('ALEPH_VM_REQUIRED_PORTS_JSON', JSON.stringify(defaultRequiredPorts())),
-    channel: optional('ALEPH_VM_CHANNEL', 'TEST')
+    channel: optional('ALEPH_VM_CHANNEL', 'TEST'),
+    log: actionLog
   })
 
   const { runtimeJson, verificationJson } = await emitDeployOutputs(deployResult)
+  const runtime = deployResult.runtime
 
   process.stdout.write(
     `${JSON.stringify({
