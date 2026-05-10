@@ -198,6 +198,23 @@ export async function listGeocodedCrns(url = CRN_LIST_URL) {
     })
 }
 
+export function selectPreferredCrn(crns) {
+  return [...(crns ?? [])]
+    .filter((crn) => {
+      if (crn.qemu_support === false) return false
+      if (crn.system_usage?.active === false) return false
+      return true
+    })
+    .sort((left, right) => {
+      const rightScore = typeof right.score === 'number' ? right.score : Number(right.score ?? Number.NEGATIVE_INFINITY)
+      const leftScore = typeof left.score === 'number' ? left.score : Number(left.score ?? Number.NEGATIVE_INFINITY)
+      if (rightScore !== leftScore) return rightScore - leftScore
+      const leftName = (left.name || left.address || left.hash).toLowerCase()
+      const rightName = (right.name || right.address || right.hash).toLowerCase()
+      return leftName.localeCompare(rightName)
+    })[0] ?? null
+}
+
 export function signaturePayload(message) {
   return [message.chain, message.sender, message.type, message.item_hash].join('\n')
 }
@@ -481,11 +498,17 @@ export async function ensureInstancePortForwards(args) {
 }
 
 export async function deployVm(args) {
+  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL))
+  const selectedCrn = args.crnHash ? findCrnByHash(crns, args.crnHash) : selectPreferredCrn(crns)
+  if (!selectedCrn) {
+    throw new Error('No compatible CRN was available for deployment.')
+  }
   const wallet = new Wallet(args.privateKey)
   const sender = args.sender ?? wallet.address
   const content = createInstanceContent({
     ...args,
-    address: sender
+    address: sender,
+    crnHash: selectedCrn.hash
   })
   const unsignedMessage = await createUnsignedInstanceMessage({
     sender,
@@ -498,6 +521,7 @@ export async function deployVm(args) {
 
   return {
     sender,
+    selectedCrn,
     itemHash: signedMessage.item_hash,
     content,
     message: signedMessage,
@@ -919,7 +943,7 @@ export async function deployVmAndWait(args) {
     deploymentResult.status === 'processed'
       ? await waitForVmRuntime({
           itemHash: deployment.itemHash,
-          crnHash: args.crnHash,
+          crnHash: deployment.selectedCrn?.hash ?? args.crnHash,
           crnListUrl: args.crnListUrl,
           attempts: args.runtimeAttempts ?? args.waitAttempts ?? 20,
           delayMs: args.runtimeDelayMs ?? args.waitDelayMs ?? 4000

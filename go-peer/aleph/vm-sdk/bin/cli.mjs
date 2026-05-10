@@ -85,7 +85,7 @@ async function main() {
     rootfsItemHash: required('ALEPH_VM_ROOTFS_ITEM_HASH'),
     rootfsVersion: optional('ALEPH_VM_ROOTFS_VERSION', ''),
     rootfsSizeMiB: asInteger('ALEPH_VM_ROOTFS_SIZE_MIB', 20480),
-    crnHash: required('ALEPH_VM_CRN_HASH'),
+    crnHash: optional('ALEPH_VM_CRN_HASH', ''),
     vcpus: asInteger('ALEPH_VM_VCPUS', 1),
     memoryMiB: asInteger('ALEPH_VM_MEMORY_MIB', 1024),
     seconds: asInteger('ALEPH_VM_SECONDS', 30),

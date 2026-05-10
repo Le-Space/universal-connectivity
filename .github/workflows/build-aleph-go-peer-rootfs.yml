@@ -22,8 +22,12 @@ on:
         required: false
         default: uc-go-peer
         type: string
+      vm_ssh_public_key:
+        description: Optional SSH public key override for the deployed VM
+        required: false
+        type: string
       vm_crn_hash:
-        description: Target CRN hash for the uc-go-peer deployment
+        description: Optional target CRN hash for the uc-go-peer deployment
         required: false
         type: string
       vm_vcpus:
@@ -59,6 +63,7 @@ jobs:
       aleph_retention_days: ${{ vars.ALEPH_RETENTION_DAYS || '' }}
       deploy_vm: ${{ inputs.deploy_vm }}
       vm_name: ${{ inputs.vm_name || 'uc-go-peer' }}
+      vm_ssh_public_key: ${{ inputs.vm_ssh_public_key || '' }}
       vm_crn_hash: ${{ inputs.vm_crn_hash || vars.ALEPH_VM_CRN_HASH || '' }}
       vm_vcpus: ${{ inputs.vm_vcpus || '1' }}
       vm_memory_mib: ${{ inputs.vm_memory_mib || '1024' }}

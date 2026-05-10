@@ -36,8 +36,13 @@ on:
         required: false
         default: uc-go-peer
         type: string
+      vm_ssh_public_key:
+        description: Optional SSH public key override for the deployed VM
+        required: false
+        default: ''
+        type: string
       vm_crn_hash:
-        description: Target CRN hash for the uc-go-peer credit deployment
+        description: Optional target CRN hash for the uc-go-peer credit deployment
         required: false
         default: ''
         type: string
@@ -184,12 +189,8 @@ jobs:
             echo "deploy_vm=true requires publish=true so the rootfs gets an Aleph item hash." >&2
             exit 1
           fi
-          if [[ "${{ inputs.deploy_vm }}" == "true" && -z "${{ inputs.vm_crn_hash }}" ]]; then
-            echo "deploy_vm=true requires vm_crn_hash." >&2
-            exit 1
-          fi
-          if [[ "${{ inputs.deploy_vm }}" == "true" && -z "${{ secrets.VM_SSH_PUBLIC_KEY }}" ]]; then
-            echo "deploy_vm=true requires the VM_SSH_PUBLIC_KEY secret." >&2
+          if [[ "${{ inputs.deploy_vm }}" == "true" && -z "${{ inputs.vm_ssh_public_key }}" && -z "${{ secrets.VM_SSH_PUBLIC_KEY }}" ]]; then
+            echo "deploy_vm=true requires vm_ssh_public_key or the VM_SSH_PUBLIC_KEY secret." >&2
             exit 1
           fi
 
@@ -332,7 +333,7 @@ jobs:
         with:
           aleph_private_key: ${{ secrets.ALEPH_PRIVATE_KEY }}
           name: ${{ inputs.vm_name }}
-          ssh_public_key: ${{ secrets.VM_SSH_PUBLIC_KEY }}
+          ssh_public_key: ${{ inputs.vm_ssh_public_key != '' && inputs.vm_ssh_public_key || secrets.VM_SSH_PUBLIC_KEY }}
           rootfs_item_hash: ${{ steps.collect_rootfs_outputs.outputs.rootfs_item_hash }}
           rootfs_version: ${{ env.ROOTFS_VERSION }}
           rootfs_size_mib: ${{ inputs.vm_rootfs_size_mib }}
