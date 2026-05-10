@@ -43,9 +43,76 @@ function isRetryableNetworkError(error) {
   )
 }
 
-async function fetchJsonOnce(url, init = {}, timeoutMs = 30000) {
+function sanitizeForLog(value, depth = 0) {
+  if (value == null) return value
+  if (depth >= 4) return '[truncated-depth]'
+  if (typeof value === 'string') {
+    if (/^0x[a-f0-9]{64,}$/i.test(value)) {
+      return `${value.slice(0, 18)}...[redacted]`
+    }
+    if (value.length > 400) {
+      return `${value.slice(0, 400)}...[truncated ${value.length - 400} chars]`
+    }
+    return value
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return value
+  if (Array.isArray(value)) {
+    const items = value.slice(0, 10).map((entry) => sanitizeForLog(entry, depth + 1))
+    if (value.length > 10) {
+      items.push(`[truncated ${value.length - 10} more items]`)
+    }
+    return items
+  }
+  if (typeof value === 'object') {
+    const result = {}
+    const entries = Object.entries(value)
+    for (const [index, [key, entryValue]] of entries.entries()) {
+      if (index >= 20) {
+        result.__truncated__ = `${entries.length - 20} more keys`
+        break
+      }
+      if (key === 'signature') {
+        result[key] = '[redacted-signature]'
+      } else if (key === 'authorized_keys') {
+        result[key] = Array.isArray(entryValue) ? `[redacted ${entryValue.length} ssh key(s)]` : '[redacted ssh keys]'
+      } else {
+        result[key] = sanitizeForLog(entryValue, depth + 1)
+      }
+    }
+    return result
+  }
+  return String(value)
+}
+
+function emitTrace(trace, phase, details) {
+  const logger = trace?.log
+  if (typeof logger !== 'function') return
+  const prefix = trace?.label ? `[${trace.label}] ` : ''
+  logger('notice', `${prefix}${phase}: ${JSON.stringify(sanitizeForLog(details))}`)
+}
+
+async function fetchJsonOnce(url, init = {}, timeoutMs = 30000, trace = null) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs)
+  const method = String(init.method ?? 'GET').toUpperCase()
+  const bodyForLog =
+    typeof init.body === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(init.body)
+          } catch {
+            return init.body
+          }
+        })()
+      : init.body
+
+  emitTrace(trace, 'http-request', {
+    method,
+    url: String(url),
+    headers: init.headers ?? {},
+    body: bodyForLog,
+    timeoutMs
+  })
 
   try {
     const response = await fetch(url, {
@@ -67,8 +134,21 @@ async function fetchJsonOnce(url, init = {}, timeoutMs = 30000) {
       }
     }
 
+    emitTrace(trace, 'http-response', {
+      method,
+      url: String(url),
+      status: response.status,
+      ok: response.ok,
+      payload
+    })
+
     return { response, payload }
   } catch (error) {
+    emitTrace(trace, 'http-error', {
+      method,
+      url: String(url),
+      error: error instanceof Error ? error.message : String(error)
+    })
     if (error?.name === 'AbortError') {
       throw new Error(`Request timed out after ${timeoutMs}ms`)
     }
@@ -78,11 +158,19 @@ async function fetchJsonOnce(url, init = {}, timeoutMs = 30000) {
   }
 }
 
-async function fetchJson(url, init = {}, timeoutMs = 30000, attempts = 3) {
+async function fetchJson(url, init = {}, timeoutMs = 30000, attempts = 3, trace = null) {
   let lastError = null
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await fetchJsonOnce(url, init, timeoutMs)
+      if (attempt > 1) {
+        emitTrace(trace, 'http-retry', {
+          method: String(init.method ?? 'GET').toUpperCase(),
+          url: String(url),
+          attempt,
+          attempts
+        })
+      }
+      return await fetchJsonOnce(url, init, timeoutMs, trace)
     } catch (error) {
       lastError = error
       if (!isRetryableNetworkError(error) || attempt === attempts) {
@@ -108,10 +196,10 @@ export function isValidSshPublicKey(value) {
   return SSH_PUBLIC_KEY_PATTERN.test(normalizeSshPublicKey(value))
 }
 
-export async function fetchCrns(url = CRN_LIST_URL) {
+export async function fetchCrns(url = CRN_LIST_URL, trace = null) {
   const requestUrl = new URL(url)
   requestUrl.searchParams.set('filter_inactive', 'true')
-  const { response, payload } = await fetchJson(requestUrl)
+  const { response, payload } = await fetchJson(requestUrl, {}, 30000, 3, trace)
   if (!response.ok) {
     throw new Error(`CRN list request failed: ${response.status}`)
   }
@@ -134,7 +222,7 @@ function isIpAddress(host) {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(':')
 }
 
-async function resolveHostIp(host) {
+async function resolveHostIp(host, trace = null) {
   if (!host) return null
   if (isIpAddress(host)) return host
 
@@ -144,7 +232,7 @@ async function resolveHostIp(host) {
     url.searchParams.set('type', type)
     url.searchParams.set('edns_client_subnet', '0.0.0.0/0')
 
-    const { response, payload } = await fetchJson(url)
+    const { response, payload } = await fetchJson(url, {}, 30000, 3, trace)
     if (!response.ok) continue
 
     const record = Array.isArray(payload?.Answer)
@@ -169,10 +257,10 @@ function countryNameFromCode(value) {
   }
 }
 
-async function lookupIpLocation(ip) {
+async function lookupIpLocation(ip, trace = null) {
   const url = new URL(`${COUNTRY_IS_API_BASE_URL}/${encodeURIComponent(ip)}`)
   url.searchParams.set('fields', 'city,subdivision')
-  const { response, payload } = await fetchJson(url)
+  const { response, payload } = await fetchJson(url, {}, 30000, 3, trace)
   if (!response.ok) {
     return {
       resolved_ip: ip,
@@ -195,7 +283,7 @@ async function lookupIpLocation(ip) {
   }
 }
 
-export async function enrichCrnsWithGeo(crns) {
+export async function enrichCrnsWithGeo(crns, trace = null) {
   return Promise.all(
     crns.map(async (crn) => {
       if (crn.city || crn.region || crn.country || crn.country_code) {
@@ -204,10 +292,10 @@ export async function enrichCrnsWithGeo(crns) {
 
       try {
         const host = lookupHost(crn.address)
-        const ip = await resolveHostIp(host)
+        const ip = await resolveHostIp(host, trace)
         if (!ip) return crn
 
-        const geo = await lookupIpLocation(ip)
+        const geo = await lookupIpLocation(ip, trace)
         return {
           ...crn,
           ...geo
@@ -265,7 +353,7 @@ export async function rankCandidateCrns(crns, options = {}) {
     return sortedCrns
   }
 
-  const enrichedTopCrns = await enrichCrnsWithGeo(sortedCrns.slice(0, geoLimit))
+  const enrichedTopCrns = await enrichCrnsWithGeo(sortedCrns.slice(0, geoLimit), options.trace ?? null)
   const mergedByHash = new Map(enrichedTopCrns.map((crn) => [crn.hash, crn]))
   const mergedCrns = sortedCrns.map((crn) => mergedByHash.get(crn.hash) ?? crn)
   const originalIndex = new Map(mergedCrns.map((crn, index) => [crn.hash, index]))
@@ -471,22 +559,27 @@ function isInvalidMessageFormatResponse(response, payload) {
   return false
 }
 
-async function postBroadcastPayload(body, apiHost) {
+async function postBroadcastPayload(body, apiHost, trace = null) {
   const { response, payload } = await fetchJson(`${apiHost}/api/v0/messages`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     },
     body: JSON.stringify(body)
-  })
+  }, 30000, 3, trace)
   return { response, payload }
 }
 
-export async function broadcastAlephMessage(message, apiHost = ALEPH_API_HOST, sync = false) {
+export async function broadcastAlephMessage(message, apiHost = ALEPH_API_HOST, sync = false, trace = null) {
   const attempts = [{ sync, message }, { ...message, sync }, { ...message }]
 
   for (let index = 0; index < attempts.length; index += 1) {
-    const { response, payload } = await postBroadcastPayload(attempts[index], apiHost)
+    emitTrace(trace, 'aleph-broadcast-attempt', {
+      index: index + 1,
+      attempts: attempts.length,
+      body: attempts[index]
+    })
+    const { response, payload } = await postBroadcastPayload(attempts[index], apiHost, trace)
     if (response.ok || response.status === 202) {
       return {
         httpStatus: response.status,
@@ -503,10 +596,10 @@ export async function broadcastAlephMessage(message, apiHost = ALEPH_API_HOST, s
   throw new Error('Broadcast failed: no compatible request format was accepted')
 }
 
-export async function fetchPortForwardAggregate(address, apiHost = ALEPH_API_HOST) {
+export async function fetchPortForwardAggregate(address, apiHost = ALEPH_API_HOST, trace = null) {
   const requestUrl = new URL(`/api/v0/aggregates/${address}.json`, apiHost)
   requestUrl.searchParams.set('keys', 'port-forwarding')
-  const { response, payload } = await fetchJson(requestUrl)
+  const { response, payload } = await fetchJson(requestUrl, {}, 30000, 3, trace)
   if (response.status === 404) return {}
   if (!response.ok) {
     throw new Error(`Port-forward aggregate request failed: ${response.status}`)
@@ -558,7 +651,7 @@ async function createUnsignedForgetMessage(args) {
 
 export async function ensureInstancePortForwards(args) {
   const requestedPorts = mergeRequiredPortForwards(args.requiredPorts ?? defaultRequiredPorts())
-  const aggregate = await fetchPortForwardAggregate(args.sender, args.apiHost ?? ALEPH_API_HOST)
+  const aggregate = await fetchPortForwardAggregate(args.sender, args.apiHost ?? ALEPH_API_HOST, args.trace)
   const existingPorts = normalizeExistingEntry(aggregate[args.instanceItemHash])
   const mergedPorts = mergePortFlagMaps(existingPorts, requestedPortFlags(requestedPorts))
   const content = {
@@ -578,7 +671,7 @@ export async function ensureInstancePortForwards(args) {
     channel: args.channel
   })
   const message = await signInstanceMessage(unsignedMessage, args.privateKey)
-  const { response, httpStatus } = await broadcastAlephMessage(message, args.apiHost ?? ALEPH_API_HOST, false)
+  const { response, httpStatus } = await broadcastAlephMessage(message, args.apiHost ?? ALEPH_API_HOST, false, args.trace)
   const aggregateStatus = normalizeMessageStatus(response?.message_status ?? (httpStatus === 202 ? 'pending' : undefined))
 
   if (aggregateStatus === 'rejected') {
@@ -604,7 +697,7 @@ export async function forgetAlephMessages(args) {
     now: args.now
   })
   const message = await signInstanceMessage(unsignedMessage, args.privateKey)
-  const result = await broadcastAlephMessage(message, args.apiHost ?? ALEPH_API_HOST, false)
+  const result = await broadcastAlephMessage(message, args.apiHost ?? ALEPH_API_HOST, false, args.trace)
 
   return {
     sender,
@@ -633,7 +726,7 @@ async function cleanupFailedDeployment(args) {
 }
 
 export async function deployVm(args) {
-  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL))
+  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL, args.trace))
   const selectedCrn =
     args.selectedCrn ??
     (args.crnHash
@@ -641,7 +734,8 @@ export async function deployVm(args) {
       : await selectPreferredCrn(crns, {
           excludedHashes: args.excludedCrnHashes,
           preferredCountryCode: args.preferredCountryCode,
-          geoLimit: args.geoCrnLimit
+          geoLimit: args.geoCrnLimit,
+          trace: args.trace
         }))
   if (!selectedCrn) {
     throw new Error('No compatible CRN was available for deployment.')
@@ -660,7 +754,7 @@ export async function deployVm(args) {
     now: args.now
   })
   const signedMessage = await signInstanceMessage(unsignedMessage, args.privateKey)
-  const result = await broadcastAlephMessage(signedMessage, args.apiHost ?? ALEPH_API_HOST, false)
+  const result = await broadcastAlephMessage(signedMessage, args.apiHost ?? ALEPH_API_HOST, false, args.trace)
 
   return {
     sender,
@@ -674,8 +768,8 @@ export async function deployVm(args) {
   }
 }
 
-export async function fetchMessageEnvelope(itemHash, apiHost = ALEPH_API_HOST) {
-  const { response, payload } = await fetchJson(`${apiHost}/api/v0/messages/${itemHash}`)
+export async function fetchMessageEnvelope(itemHash, apiHost = ALEPH_API_HOST, trace = null) {
+  const { response, payload } = await fetchJson(`${apiHost}/api/v0/messages/${itemHash}`, {}, 30000, 3, trace)
   if (response.status === 404) return null
   if (!response.ok) {
     throw new Error(`Message lookup failed: ${response.status}`)
@@ -693,8 +787,8 @@ function insufficientBalanceMessage(details) {
   return null
 }
 
-export async function inspectMessageResult(itemHash, apiHost = ALEPH_API_HOST, label = 'Message') {
-  const payload = await fetchMessageEnvelope(itemHash, apiHost)
+export async function inspectMessageResult(itemHash, apiHost = ALEPH_API_HOST, label = 'Message', trace = null) {
+  const payload = await fetchMessageEnvelope(itemHash, apiHost, trace)
   if (!payload) {
     return {
       status: 'unknown',
@@ -724,8 +818,8 @@ export async function inspectMessageResult(itemHash, apiHost = ALEPH_API_HOST, l
   }
 }
 
-export async function inspectDeploymentResult(itemHash, rootfsRef, apiHost = ALEPH_API_HOST) {
-  const inspected = await inspectMessageResult(itemHash, apiHost, 'Deployment message')
+export async function inspectDeploymentResult(itemHash, rootfsRef, apiHost = ALEPH_API_HOST, trace = null) {
+  const inspected = await inspectMessageResult(itemHash, apiHost, 'Deployment message', trace)
   const { status, errorCode, details } = inspected
   let rejectionReason = null
 
@@ -746,14 +840,14 @@ export async function inspectDeploymentResult(itemHash, rootfsRef, apiHost = ALE
   }
 }
 
-export async function waitForDeploymentResult(itemHash, rootfsRef, apiHost = ALEPH_API_HOST, attempts = 15, delayMs = 2000) {
-  let lastResult = await inspectDeploymentResult(itemHash, rootfsRef, apiHost)
+export async function waitForDeploymentResult(itemHash, rootfsRef, apiHost = ALEPH_API_HOST, attempts = 15, delayMs = 2000, trace = null) {
+  let lastResult = await inspectDeploymentResult(itemHash, rootfsRef, apiHost, trace)
   for (let attempt = 1; attempt < attempts; attempt += 1) {
     if (lastResult.status === 'processed' || lastResult.status === 'rejected') {
       return lastResult
     }
     await sleep(delayMs)
-    lastResult = await inspectDeploymentResult(itemHash, rootfsRef, apiHost)
+    lastResult = await inspectDeploymentResult(itemHash, rootfsRef, apiHost, trace)
   }
   return lastResult
 }
@@ -764,13 +858,13 @@ async function waitForRequiredMessage(itemHash, options = {}) {
   const attempts = Math.max(1, Number(options.attempts ?? 60))
   const delayMs = Math.max(250, Number(options.delayMs ?? 5000))
 
-  let lastResult = await inspectMessageResult(itemHash, apiHost, label)
+  let lastResult = await inspectMessageResult(itemHash, apiHost, label, options.trace ?? null)
   for (let attempt = 1; attempt < attempts; attempt += 1) {
     if (lastResult.status === 'processed' || lastResult.status === 'rejected') {
       break
     }
     await sleep(delayMs)
-    lastResult = await inspectMessageResult(itemHash, apiHost, label)
+    lastResult = await inspectMessageResult(itemHash, apiHost, label, options.trace ?? null)
   }
 
   if (lastResult.status === 'processed') {
@@ -782,8 +876,8 @@ async function waitForRequiredMessage(itemHash, options = {}) {
   throw new Error(`${label} ${itemHash} stayed ${lastResult.status} after waiting ${attempts} attempts with ${delayMs}ms delay.`)
 }
 
-async function fetchSchedulerAllocation(itemHash) {
-  const { response, payload } = await fetchJson(`${SCHEDULER_ALLOCATION_URL}/${itemHash}`)
+async function fetchSchedulerAllocation(itemHash, trace = null) {
+  const { response, payload } = await fetchJson(`${SCHEDULER_ALLOCATION_URL}/${itemHash}`, {}, 30000, 3, trace)
   if (response.status === 404) return null
   if (!response.ok) {
     throw new Error(`Scheduler allocation request failed: ${response.status}`)
@@ -812,19 +906,19 @@ async function fetchSchedulerAllocation(itemHash) {
   }
 }
 
-async function fetch2n6WebAccessUrl(instanceItemHash) {
-  const { response, payload } = await fetchJson(`${TWO_N_SIX_HASH_URL}/${instanceItemHash}`)
+async function fetch2n6WebAccessUrl(instanceItemHash, trace = null) {
+  const { response, payload } = await fetchJson(`${TWO_N_SIX_HASH_URL}/${instanceItemHash}`, {}, 30000, 3, trace)
   if (!response.ok) return null
   return normalizeProxyUrl(payload?.url ?? payload?.subdomain)
 }
 
-async function fetchCrnExecutionMap(crnUrl) {
+async function fetchCrnExecutionMap(crnUrl, trace = null) {
   const normalizedCrnUrl = String(crnUrl).replace(/\/+$/, '')
   for (const [version, suffix] of [
     ['v2', '/v2/about/executions/list'],
     ['v1', '/about/executions/list']
   ]) {
-    const { response, payload } = await fetchJson(`${normalizedCrnUrl}${suffix}`)
+    const { response, payload } = await fetchJson(`${normalizedCrnUrl}${suffix}`, {}, 30000, 3, trace)
     if (response.ok) {
       return {
         version,
@@ -927,8 +1021,8 @@ function findCrnByHash(crns, crnHash) {
 }
 
 export async function fetchVmRuntime(args) {
-  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL))
-  const schedulerAllocation = await fetchSchedulerAllocation(args.itemHash).catch(() => null)
+  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL, args.trace))
+  const schedulerAllocation = await fetchSchedulerAllocation(args.itemHash, args.trace).catch(() => null)
   const selectedCrn = args.crnHash ? findCrnByHash(crns, args.crnHash) : null
   const allocation =
     schedulerAllocation ??
@@ -943,11 +1037,11 @@ export async function fetchVmRuntime(args) {
         }
       : null)
 
-  const webAccessUrl = await fetch2n6WebAccessUrl(args.itemHash).catch(() => null)
+  const webAccessUrl = await fetch2n6WebAccessUrl(args.itemHash, args.trace).catch(() => null)
   let execution = null
 
   if (allocation?.crnUrl) {
-    const executionLookup = await fetchCrnExecutionMap(allocation.crnUrl)
+    const executionLookup = await fetchCrnExecutionMap(allocation.crnUrl, args.trace)
     const executionPayload = executionLookup.payload?.[args.itemHash]
     if (executionPayload) {
       execution = normalizeExecution(executionPayload, allocation.crnUrl)
@@ -961,6 +1055,17 @@ export async function fetchVmRuntime(args) {
   const ipv6 = execution?.networking?.ipv6_ip ?? execution?.networking?.ipv6 ?? allocation?.vmIpv6 ?? null
   const sshPort = execution?.networking?.mapped_ports?.['22']?.host ?? null
   const proxyUrl = execution?.networking?.proxy_url ?? webAccessUrl ?? null
+
+  emitTrace(args.trace ?? null, 'vm-runtime-snapshot', {
+    itemHash: args.itemHash,
+    allocation,
+    execution,
+    webAccessUrl,
+    hostIpv4,
+    ipv6,
+    proxyUrl,
+    mappedPorts: execution?.networking?.mapped_ports ?? {}
+  })
 
   return {
     allocation,
@@ -1128,23 +1233,26 @@ export async function verifyUcGoPeerReachability(args) {
 
 export async function deployVmAndWait(args) {
   const log = typeof args.log === 'function' ? args.log : () => {}
+  const trace = { log, label: 'aleph-vm' }
 
   log('notice', `Waiting for rootfs STORE message ${args.rootfsItemHash} to become processed before VM deployment.`)
   await waitForRequiredMessage(args.rootfsItemHash, {
     label: 'Rootfs STORE message',
     apiHost: args.apiHost ?? ALEPH_API_HOST,
     attempts: Number(args.rootfsWaitAttempts ?? args.waitAttempts ?? 60),
-    delayMs: Number(args.rootfsWaitDelayMs ?? args.waitDelayMs ?? 5000)
+    delayMs: Number(args.rootfsWaitDelayMs ?? args.waitDelayMs ?? 5000),
+    trace
   })
 
-  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL))
+  const crns = args.crns ?? (await fetchCrns(args.crnListUrl ?? CRN_LIST_URL, trace))
   const candidateCrns =
     args.crnHash && findCrnByHash(crns, args.crnHash)
       ? [findCrnByHash(crns, args.crnHash)]
       : await rankCandidateCrns(crns, {
           preferredCountryCode: args.preferredCountryCode,
           geoLimit: args.geoCrnLimit,
-          excludedHashes: args.excludedCrnHashes
+          excludedHashes: args.excludedCrnHashes,
+          trace
         })
 
   const maxCrnAttempts = Math.max(1, Number(args.maxCrnAttempts ?? 5))
@@ -1164,14 +1272,16 @@ export async function deployVmAndWait(args) {
       ...args,
       crns,
       selectedCrn: candidateCrn,
-      crnHash: candidateCrn.hash
+      crnHash: candidateCrn.hash,
+      trace
     })
     deploymentResult = await waitForDeploymentResult(
       deployment.itemHash,
       args.rootfsItemHash,
       args.apiHost ?? ALEPH_API_HOST,
       Number(args.waitAttempts ?? 60),
-      Number(args.waitDelayMs ?? 5000)
+      Number(args.waitDelayMs ?? 5000),
+      trace
     )
 
     if (deploymentResult.status === 'processed') {
@@ -1210,7 +1320,8 @@ export async function deployVmAndWait(args) {
       requiredPorts: args.requiredPorts ?? defaultRequiredPorts(),
       privateKey: args.privateKey,
       channel: args.channel,
-      apiHost: args.apiHost ?? ALEPH_API_HOST
+      apiHost: args.apiHost ?? ALEPH_API_HOST,
+      trace
     })
 
     const runtime = await waitForVmRuntime({
@@ -1218,10 +1329,16 @@ export async function deployVmAndWait(args) {
       crnHash: deployment.selectedCrn?.hash ?? args.crnHash,
       crnListUrl: args.crnListUrl,
       attempts: args.runtimeAttempts ?? args.waitAttempts ?? 40,
-      delayMs: args.runtimeDelayMs ?? args.waitDelayMs ?? 5000
+      delayMs: args.runtimeDelayMs ?? args.waitDelayMs ?? 5000,
+      trace
     })
 
     if (!runtime?.hostIpv4 || Object.keys(runtime?.mappedPorts ?? {}).length === 0) {
+      emitTrace(trace, 'runtime-missing-networking', {
+        itemHash: deployment.itemHash,
+        crn: candidateCrn,
+        runtime
+      })
       log(
         'warning',
         `Deployment ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash} was processed but did not expose runtime networking in time.${runtime?.proxyUrl ? ` Proxy URL: ${runtime.proxyUrl}.` : ''}`
@@ -1232,7 +1349,8 @@ export async function deployVmAndWait(args) {
         instanceItemHash: deployment.itemHash,
         reason: 'Processed deployment never exposed runtime networking',
         channel: args.channel,
-        apiHost: args.apiHost ?? ALEPH_API_HOST
+        apiHost: args.apiHost ?? ALEPH_API_HOST,
+        trace
       })
       if (cleanup?.error) {
         log(
