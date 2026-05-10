@@ -59,6 +59,68 @@ async function appendSummary(lines) {
   await appendFile(summaryFile, `${lines.join('\n')}\n`)
 }
 
+async function emitDeployOutputs(deployResult) {
+  const runtime = deployResult?.runtime ?? null
+  const selectedCrn = runtime?.selectedCrn ?? deployResult?.selectedCrn ?? null
+  const runtimeJson = JSON.stringify(runtime ?? {})
+  const mappedPortsJson = JSON.stringify(runtime?.mappedPorts ?? {})
+  const portForwardingJson = JSON.stringify(deployResult?.portForwarding ?? {})
+  const configurationJson = JSON.stringify(deployResult?.configuration ?? {})
+  const verificationJson = JSON.stringify(deployResult?.verification ?? {})
+  const deploymentStatus = deployResult?.deploymentResult?.status ?? deployResult?.status ?? ''
+
+  await appendOutput('deployer_address', deployResult?.sender ?? '')
+  await appendOutput('instance_item_hash', deployResult?.itemHash ?? '')
+  await appendOutput('instance_status', deploymentStatus)
+  await appendOutput('instance_http_status', deployResult?.httpStatus ?? '')
+  await appendOutput('port_forward_aggregate_item_hash', deployResult?.portForwarding?.aggregateItemHash ?? '')
+  await appendOutput('port_forward_status', deployResult?.portForwarding?.aggregateStatus ?? '')
+  await appendOutput('crn_hash', selectedCrn?.hash ?? '')
+  await appendOutput('crn_name', selectedCrn?.name ?? '')
+  await appendOutput('crn_url', runtime?.allocation?.crnUrl ?? '')
+  await appendOutput('host_ipv4', runtime?.hostIpv4 ?? '')
+  await appendOutput('ipv6', runtime?.ipv6 ?? '')
+  await appendOutput('web_proxy_url', runtime?.proxyUrl ?? '')
+  await appendOutput('ssh_command', runtime?.sshCommand ?? '')
+  await appendOutput('setup_endpoint_ok', runtime?.setupHealth?.ok ?? '')
+  await appendOutput('mapped_ports_json', mappedPortsJson)
+  await appendOutput('configuration_json', configurationJson)
+  await appendOutput('verification_json', verificationJson)
+  await appendOutput('verification_ok', deployResult?.verification?.ok ?? '')
+  await appendOutput('port_forwarding_json', portForwardingJson)
+  await appendOutput('runtime_json', runtimeJson)
+
+  await appendSummary([
+    '## Aleph VM deployment',
+    '',
+    `- Instance item hash: \`${deployResult?.itemHash ?? 'unknown'}\``,
+    `- Deployment status: \`${deploymentStatus || 'unknown'}\``,
+    `- Port-forward aggregate status: \`${deployResult?.portForwarding?.aggregateStatus ?? 'unknown'}\``,
+    `- CRN: \`${selectedCrn?.name ?? selectedCrn?.hash ?? 'unknown'}\``,
+    `- CRN URL: \`${runtime?.allocation?.crnUrl ?? 'unknown'}\``,
+    `- Host IPv4: \`${runtime?.hostIpv4 ?? 'unknown'}\``,
+    `- IPv6: \`${runtime?.ipv6 ?? 'unknown'}\``,
+    `- Web proxy URL: \`${runtime?.proxyUrl ?? 'unknown'}\``,
+    `- SSH command: \`${runtime?.sshCommand ?? 'unknown'}\``,
+    `- Setup endpoint reachable before configure: \`${runtime?.setupHealth?.ok ?? 'unknown'}\``,
+    `- Verification ok: \`${deployResult?.verification?.ok ?? 'unknown'}\``,
+    '',
+    '### Port mappings',
+    '',
+    '```json',
+    mappedPortsJson,
+    '```',
+    '',
+    '### Reachability checks',
+    '',
+    '```json',
+    verificationJson,
+    '```'
+  ])
+
+  return { runtimeJson, verificationJson }
+}
+
 async function main() {
   const mode = optional('ALEPH_VM_MODE', 'deploy')
 
@@ -92,10 +154,10 @@ async function main() {
     vcpus: asInteger('ALEPH_VM_VCPUS', 1),
     memoryMiB: asInteger('ALEPH_VM_MEMORY_MIB', 1024),
     seconds: asInteger('ALEPH_VM_SECONDS', 30),
-    waitAttempts: asInteger('ALEPH_VM_WAIT_ATTEMPTS', 20),
-    waitDelayMs: asInteger('ALEPH_VM_WAIT_DELAY_MS', 4000),
-    runtimeAttempts: asInteger('ALEPH_VM_RUNTIME_ATTEMPTS', 20),
-    runtimeDelayMs: asInteger('ALEPH_VM_RUNTIME_DELAY_MS', 4000),
+    waitAttempts: asInteger('ALEPH_VM_WAIT_ATTEMPTS', 60),
+    waitDelayMs: asInteger('ALEPH_VM_WAIT_DELAY_MS', 5000),
+    runtimeAttempts: asInteger('ALEPH_VM_RUNTIME_ATTEMPTS', 40),
+    runtimeDelayMs: asInteger('ALEPH_VM_RUNTIME_DELAY_MS', 5000),
     setupAttempts: asInteger('ALEPH_VM_SETUP_ATTEMPTS', 15),
     setupDelayMs: asInteger('ALEPH_VM_SETUP_DELAY_MS', 4000),
     verifyAttempts: asInteger('ALEPH_VM_VERIFY_ATTEMPTS', 25),
@@ -113,62 +175,7 @@ async function main() {
     channel: optional('ALEPH_VM_CHANNEL', 'TEST')
   })
 
-  const runtime = deployResult.runtime
-  const selectedCrn = runtime?.selectedCrn ?? deployResult.selectedCrn ?? null
-  const runtimeJson = JSON.stringify(runtime ?? {})
-  const mappedPortsJson = JSON.stringify(runtime?.mappedPorts ?? {})
-  const portForwardingJson = JSON.stringify(deployResult.portForwarding ?? {})
-  const configurationJson = JSON.stringify(deployResult.configuration ?? {})
-  const verificationJson = JSON.stringify(deployResult.verification ?? {})
-
-  await appendOutput('deployer_address', deployResult.sender)
-  await appendOutput('instance_item_hash', deployResult.itemHash)
-  await appendOutput('instance_status', deployResult.deploymentResult.status)
-  await appendOutput('instance_http_status', deployResult.httpStatus)
-  await appendOutput('port_forward_aggregate_item_hash', deployResult.portForwarding?.aggregateItemHash ?? '')
-  await appendOutput('port_forward_status', deployResult.portForwarding?.aggregateStatus ?? '')
-  await appendOutput('crn_hash', selectedCrn?.hash ?? '')
-  await appendOutput('crn_name', selectedCrn?.name ?? '')
-  await appendOutput('crn_url', runtime?.allocation?.crnUrl ?? '')
-  await appendOutput('host_ipv4', runtime?.hostIpv4 ?? '')
-  await appendOutput('ipv6', runtime?.ipv6 ?? '')
-  await appendOutput('web_proxy_url', runtime?.proxyUrl ?? '')
-  await appendOutput('ssh_command', runtime?.sshCommand ?? '')
-  await appendOutput('setup_endpoint_ok', runtime?.setupHealth?.ok ?? '')
-  await appendOutput('mapped_ports_json', mappedPortsJson)
-  await appendOutput('configuration_json', configurationJson)
-  await appendOutput('verification_json', verificationJson)
-  await appendOutput('verification_ok', deployResult.verification?.ok ?? '')
-  await appendOutput('port_forwarding_json', portForwardingJson)
-  await appendOutput('runtime_json', runtimeJson)
-
-  await appendSummary([
-    '## Aleph VM deployment',
-    '',
-    `- Instance item hash: \`${deployResult.itemHash}\``,
-    `- Deployment status: \`${deployResult.deploymentResult.status}\``,
-    `- Port-forward aggregate status: \`${deployResult.portForwarding?.aggregateStatus ?? 'unknown'}\``,
-    `- CRN: \`${selectedCrn?.name ?? selectedCrn?.hash ?? 'unknown'}\``,
-    `- CRN URL: \`${runtime?.allocation?.crnUrl ?? 'unknown'}\``,
-    `- Host IPv4: \`${runtime?.hostIpv4 ?? 'unknown'}\``,
-    `- IPv6: \`${runtime?.ipv6 ?? 'unknown'}\``,
-    `- Web proxy URL: \`${runtime?.proxyUrl ?? 'unknown'}\``,
-    `- SSH command: \`${runtime?.sshCommand ?? 'unknown'}\``,
-    `- Setup endpoint reachable before configure: \`${runtime?.setupHealth?.ok ?? 'unknown'}\``,
-    `- Verification ok: \`${deployResult.verification?.ok ?? 'unknown'}\``,
-    '',
-    '### Port mappings',
-    '',
-    '```json',
-    mappedPortsJson,
-    '```',
-    '',
-    '### Reachability checks',
-    '',
-    '```json',
-    verificationJson,
-    '```'
-  ])
+  const { runtimeJson, verificationJson } = await emitDeployOutputs(deployResult)
 
   process.stdout.write(
     `${JSON.stringify({
@@ -187,6 +194,9 @@ async function main() {
 main().catch(async (error) => {
   const message = error instanceof Error ? error.message : String(error)
   process.stderr.write(`${message}\n`)
+  if (error?.partialResult) {
+    await emitDeployOutputs(error.partialResult)
+  }
   await appendSummary(['## Aleph VM deployment', '', `- Error: \`${message}\``])
   process.exitCode = 1
 })

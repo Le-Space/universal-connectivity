@@ -953,6 +953,14 @@ function proxyHostnameFromUrl(value) {
   }
 }
 
+function createDeploymentError(message, partialResult = null) {
+  const error = new Error(message)
+  if (partialResult) {
+    error.partialResult = partialResult
+  }
+  return error
+}
+
 export async function configureUcGoPeer(args) {
   if (!args.hostIpv4) {
     throw new Error('Missing host IPv4 for uc-go-peer configuration.')
@@ -1059,6 +1067,7 @@ export async function deployVmAndWait(args) {
   let deployment = null
   let deploymentResult = null
   let lastRejection = null
+  let lastPartialResult = null
 
   for (const candidateCrn of candidateCrns.slice(0, maxCrnAttempts)) {
     attemptedCrns.push(candidateCrn)
@@ -1085,6 +1094,15 @@ export async function deployVmAndWait(args) {
         deployment,
         deploymentResult
       }
+      lastPartialResult = {
+        ...deployment,
+        attemptedCrns,
+        deploymentResult,
+        runtime: null,
+        configuration: null,
+        verification: null,
+        portForwarding: null
+      }
       deployment = null
       deploymentResult = null
       continue
@@ -1093,108 +1111,114 @@ export async function deployVmAndWait(args) {
     throw new Error(
       `Deployment message ${deployment.itemHash} on CRN ${candidateCrn.name ?? candidateCrn.hash} stayed ${deploymentResult.status} without becoming processed.`
     )
-  }
-
-  if (!deployment || !deploymentResult) {
-    const rejectionSummary =
-      lastRejection?.deploymentResult?.rejectionReason ??
-      (lastRejection
-        ? `Aleph rejected the last deployment attempt on ${lastRejection.candidateCrn?.name ?? lastRejection.candidateCrn?.hash}.`
-        : 'No compatible CRN deployment attempt succeeded.')
-    throw new Error(
-      `${rejectionSummary} Tried ${attemptedCrns.map((crn) => crn.name ?? crn.hash).join(', ')}.`
-    )
-  }
-
-  const portForwarding = await ensureInstancePortForwards({
-    sender: deployment.sender,
-    instanceItemHash: deployment.itemHash,
-    requiredPorts: args.requiredPorts ?? defaultRequiredPorts(),
-    privateKey: args.privateKey,
-    channel: args.channel,
-    apiHost: args.apiHost ?? ALEPH_API_HOST
-  })
-
-  const runtime =
-    deploymentResult.status === 'processed'
-      ? await waitForVmRuntime({
-          itemHash: deployment.itemHash,
-          crnHash: deployment.selectedCrn?.hash ?? args.crnHash,
-          crnListUrl: args.crnListUrl,
-          attempts: args.runtimeAttempts ?? args.waitAttempts ?? 40,
-          delayMs: args.runtimeDelayMs ?? args.waitDelayMs ?? 5000
-        })
-      : null
-
-  if (!runtime?.hostIpv4 || Object.keys(runtime?.mappedPorts ?? {}).length === 0) {
-    throw new Error(`VM ${deployment.itemHash} was processed but did not publish runtime host IPv4 and mapped ports in time.`)
-  }
-
-  let configuration = null
-  let verification = null
-
-  if (runtime && args.autoConfigure !== false) {
-    const mappedPorts = runtime.mappedPorts ?? {}
-    const setupPort = mappedPorts['80']?.host ?? null
-    const tcpPort = mappedPorts['9095']?.host ?? null
-    const wsPort = mappedPorts['443']?.host ?? 443
-    const udpPort = mappedPorts['9095']?.udp === true ? mappedPorts['9095']?.host ?? null : null
-    const setupUrl = runtime.hostIpv4 && setupPort ? `http://${runtime.hostIpv4}:${setupPort}/health` : null
-
-    let setupHealth = null
-    if (setupUrl) {
-      for (let attempt = 0; attempt < Number(args.setupAttempts ?? 15); attempt += 1) {
-        setupHealth = await httpProbe(setupUrl, Number(args.httpTimeoutMs ?? 10000))
-        if (setupHealth.ok) {
-          break
-        }
-        await sleep(Number(args.setupDelayMs ?? 4000))
-      }
-      if (!setupHealth?.ok) {
-        throw new Error(`Temporary setup endpoint did not become reachable at ${setupUrl}.`)
-      }
-    }
-
-    configuration = await configureUcGoPeer({
-      hostIpv4: runtime.hostIpv4,
-      publicIpv6: runtime.ipv6,
-      setupPort,
-      tcpPort,
-      wsPort,
-      udpPort,
-      quicPort: udpPort,
-      webrtcPort: udpPort,
-      proxyUrl: runtime.proxyUrl
+    const portForwarding = await ensureInstancePortForwards({
+      sender: deployment.sender,
+      instanceItemHash: deployment.itemHash,
+      requiredPorts: args.requiredPorts ?? defaultRequiredPorts(),
+      privateKey: args.privateKey,
+      channel: args.channel,
+      apiHost: args.apiHost ?? ALEPH_API_HOST
     })
 
-    if (args.verifyReachability !== false) {
-      let latestVerification = null
-      for (let attempt = 0; attempt < Number(args.verifyAttempts ?? 25); attempt += 1) {
-        latestVerification = await verifyUcGoPeerReachability({
-          hostIpv4: runtime.hostIpv4,
-          mappedPorts,
-          proxyUrl: runtime.proxyUrl,
-          tcpTimeoutMs: args.tcpTimeoutMs,
-          httpTimeoutMs: args.httpTimeoutMs
-        })
-        if (latestVerification.ok) {
-          verification = latestVerification
-          break
-        }
-        await sleep(Number(args.verifyDelayMs ?? 5000))
+    const runtime = await waitForVmRuntime({
+      itemHash: deployment.itemHash,
+      crnHash: deployment.selectedCrn?.hash ?? args.crnHash,
+      crnListUrl: args.crnListUrl,
+      attempts: args.runtimeAttempts ?? args.waitAttempts ?? 40,
+      delayMs: args.runtimeDelayMs ?? args.waitDelayMs ?? 5000
+    })
+
+    if (!runtime?.hostIpv4 || Object.keys(runtime?.mappedPorts ?? {}).length === 0) {
+      lastPartialResult = {
+        ...deployment,
+        attemptedCrns,
+        deploymentResult,
+        runtime,
+        configuration: null,
+        verification: null,
+        portForwarding
       }
-      verification = verification ?? latestVerification
+      deployment = null
+      deploymentResult = null
+      continue
     }
 
-    runtime.setupHealth = setupHealth
+    let configuration = null
+    let verification = null
+
+    if (runtime && args.autoConfigure !== false) {
+      const mappedPorts = runtime.mappedPorts ?? {}
+      const setupPort = mappedPorts['80']?.host ?? null
+      const tcpPort = mappedPorts['9095']?.host ?? null
+      const wsPort = mappedPorts['443']?.host ?? 443
+      const udpPort = mappedPorts['9095']?.udp === true ? mappedPorts['9095']?.host ?? null : null
+      const setupUrl = runtime.hostIpv4 && setupPort ? `http://${runtime.hostIpv4}:${setupPort}/health` : null
+
+      let setupHealth = null
+      if (setupUrl) {
+        for (let attempt = 0; attempt < Number(args.setupAttempts ?? 15); attempt += 1) {
+          setupHealth = await httpProbe(setupUrl, Number(args.httpTimeoutMs ?? 10000))
+          if (setupHealth.ok) {
+            break
+          }
+          await sleep(Number(args.setupDelayMs ?? 4000))
+        }
+        if (!setupHealth?.ok) {
+          throw new Error(`Temporary setup endpoint did not become reachable at ${setupUrl}.`)
+        }
+      }
+
+      configuration = await configureUcGoPeer({
+        hostIpv4: runtime.hostIpv4,
+        publicIpv6: runtime.ipv6,
+        setupPort,
+        tcpPort,
+        wsPort,
+        udpPort,
+        quicPort: udpPort,
+        webrtcPort: udpPort,
+        proxyUrl: runtime.proxyUrl
+      })
+
+      if (args.verifyReachability !== false) {
+        let latestVerification = null
+        for (let attempt = 0; attempt < Number(args.verifyAttempts ?? 25); attempt += 1) {
+          latestVerification = await verifyUcGoPeerReachability({
+            hostIpv4: runtime.hostIpv4,
+            mappedPorts,
+            proxyUrl: runtime.proxyUrl,
+            tcpTimeoutMs: args.tcpTimeoutMs,
+            httpTimeoutMs: args.httpTimeoutMs
+          })
+          if (latestVerification.ok) {
+            verification = latestVerification
+            break
+          }
+          await sleep(Number(args.verifyDelayMs ?? 5000))
+        }
+        verification = verification ?? latestVerification
+      }
+
+      runtime.setupHealth = setupHealth
+    }
+
+    return {
+      ...deployment,
+      attemptedCrns,
+      portForwarding,
+      deploymentResult,
+      runtime,
+      configuration,
+      verification
+    }
   }
 
-  return {
-    ...deployment,
-    portForwarding,
-    deploymentResult,
-    runtime,
-    configuration,
-    verification
-  }
+  const rejectionSummary =
+    lastRejection?.deploymentResult?.rejectionReason ??
+    (lastPartialResult
+      ? 'A processed VM never exposed runtime networking details on any attempted CRN.'
+      : lastRejection
+        ? `Aleph rejected the last deployment attempt on ${lastRejection.candidateCrn?.name ?? lastRejection.candidateCrn?.hash}.`
+        : 'No compatible CRN deployment attempt succeeded.')
+  throw createDeploymentError(`${rejectionSummary} Tried ${attemptedCrns.map((crn) => crn.name ?? crn.hash).join(', ')}.`, lastPartialResult)
 }
