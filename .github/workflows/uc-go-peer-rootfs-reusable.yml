@@ -227,6 +227,7 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install aleph-client
+          python3 -m pip install pycares==4.11.0
 
       - name: Prepare Aleph account
         if: ${{ inputs.publish }}
