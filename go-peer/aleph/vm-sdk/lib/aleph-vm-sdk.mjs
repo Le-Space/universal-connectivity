@@ -1110,9 +1110,7 @@ export async function deployVmAndWait(args) {
 
     if (deploymentResult.status === 'processed') {
       log('notice', `Deployment message ${deployment.itemHash} was processed on ${candidateCrn.name ?? candidateCrn.hash}.`)
-      break
-    }
-    if (deploymentResult.status === 'rejected') {
+    } else if (deploymentResult.status === 'rejected') {
       log(
         'warning',
         `Deployment on ${candidateCrn.name ?? candidateCrn.hash} was rejected: ${deploymentResult.rejectionReason ?? 'no additional rejection reason from Aleph'}.`
@@ -1134,8 +1132,7 @@ export async function deployVmAndWait(args) {
       deployment = null
       deploymentResult = null
       continue
-    }
-    if (deploymentResult.status !== 'processed') {
+    } else {
       throw new Error(
         `Deployment message ${deployment.itemHash} on CRN ${candidateCrn.name ?? candidateCrn.hash} stayed ${deploymentResult.status} without becoming processed.`
       )
