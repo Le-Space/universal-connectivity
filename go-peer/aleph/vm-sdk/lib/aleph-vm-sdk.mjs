@@ -32,9 +32,20 @@ function sha256Hex(value) {
   return createHash('sha256').update(value).digest('hex')
 }
 
-async function fetchJson(url, init = {}, timeoutMs = 15000) {
+function isRetryableNetworkError(error) {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    error?.name === 'AbortError' ||
+    message.includes('This operation was aborted') ||
+    message.includes('fetch failed') ||
+    message.includes('ECONNRESET') ||
+    message.includes('ETIMEDOUT')
+  )
+}
+
+async function fetchJsonOnce(url, init = {}, timeoutMs = 30000) {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs}ms`)), timeoutMs)
 
   try {
     const response = await fetch(url, {
@@ -57,9 +68,30 @@ async function fetchJson(url, init = {}, timeoutMs = 15000) {
     }
 
     return { response, payload }
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Request timed out after ${timeoutMs}ms`)
+    }
+    throw error
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function fetchJson(url, init = {}, timeoutMs = 30000, attempts = 3) {
+  let lastError = null
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetchJsonOnce(url, init, timeoutMs)
+    } catch (error) {
+      lastError = error
+      if (!isRetryableNetworkError(error) || attempt === attempts) {
+        throw error
+      }
+      await sleep(1000 * attempt)
+    }
+  }
+  throw lastError ?? new Error('Request failed')
 }
 
 export function normalizeSshPublicKey(value) {
