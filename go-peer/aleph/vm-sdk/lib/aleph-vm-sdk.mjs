@@ -617,6 +617,16 @@ export async function fetchMessageEnvelope(itemHash, apiHost = ALEPH_API_HOST) {
   return payload
 }
 
+function insufficientBalanceMessage(details) {
+  const firstError = Array.isArray(details?.errors) ? details.errors[0] : null
+  const accountBalance = firstError?.account_balance
+  const requiredBalance = firstError?.required_balance
+  if (accountBalance != null && requiredBalance != null) {
+    return `insufficient Aleph balance: account has ${accountBalance}, required is ${requiredBalance}`
+  }
+  return null
+}
+
 export async function inspectMessageResult(itemHash, apiHost = ALEPH_API_HOST, label = 'Message') {
   const payload = await fetchMessageEnvelope(itemHash, apiHost)
   if (!payload) {
@@ -631,8 +641,14 @@ export async function inspectMessageResult(itemHash, apiHost = ALEPH_API_HOST, l
   const status = normalizeMessageStatus(payload.status)
   const errorCode = typeof payload.error_code === 'number' ? payload.error_code : null
   const details = payload.details && typeof payload.details === 'object' ? payload.details : null
-  const rejectionReason =
-    status === 'rejected' ? `${label} ${itemHash} was rejected by Aleph${errorCode ? ` (error ${errorCode})` : ''}.` : null
+  let rejectionReason = null
+
+  if (status === 'rejected') {
+    const balanceMessage = errorCode === 5 ? insufficientBalanceMessage(details) : null
+    rejectionReason = balanceMessage
+      ? `${label} ${itemHash} was rejected by Aleph due to ${balanceMessage}.`
+      : `${label} ${itemHash} was rejected by Aleph${errorCode ? ` (error ${errorCode})` : ''}.`
+  }
 
   return {
     status,

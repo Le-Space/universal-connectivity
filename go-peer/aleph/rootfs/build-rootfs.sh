@@ -14,6 +14,9 @@ CHANNEL="${CHANNEL:-ALEPH-CLOUDSOLUTIONS}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 IPFS_ADD_URL="${IPFS_ADD_URL:-https://ipfs.aleph.cloud/api/v0/add}"
+ALEPH_API_HOST="${ALEPH_API_HOST:-https://api2.aleph.im}"
+ALEPH_MESSAGE_WAIT_ATTEMPTS="${ALEPH_MESSAGE_WAIT_ATTEMPTS:-60}"
+ALEPH_MESSAGE_WAIT_DELAY_SECONDS="${ALEPH_MESSAGE_WAIT_DELAY_SECONDS:-5}"
 ROOTFS_CID=""
 ROOTFS_ITEM_HASH=""
 
@@ -195,6 +198,84 @@ PY
   sync_manifest_copy_target
 }
 
+wait_for_aleph_message_processed() {
+  require python3
+  require curl
+
+  local item_hash="${1:?missing item hash}"
+  local attempts="${2:-${ALEPH_MESSAGE_WAIT_ATTEMPTS}}"
+  local delay_seconds="${3:-${ALEPH_MESSAGE_WAIT_DELAY_SECONDS}}"
+  local api_host="${4:-${ALEPH_API_HOST}}"
+  local response_file
+  response_file="$(mktemp)"
+
+  local attempt
+  for attempt in $(seq 1 "${attempts}"); do
+    if ! curl --fail --silent --show-error \
+      "${api_host}/api/v0/messages/${item_hash}" \
+      > "${response_file}"; then
+      rm -f "${response_file}"
+      die "Failed to query Aleph message status for ${item_hash}"
+    fi
+
+    local status
+    status="$(python3 - "${response_file}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+status = payload.get("status")
+print(status or "")
+PY
+)"
+
+    case "${status}" in
+      processed)
+        rm -f "${response_file}"
+        return 0
+        ;;
+      rejected)
+        local rejection_summary
+        rejection_summary="$(python3 - "${response_file}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+error_code = payload.get("error_code")
+details = payload.get("details")
+first_error = details.get("errors", [None])[0] if isinstance(details, dict) else None
+if error_code == 5 and isinstance(first_error, dict):
+    account_balance = first_error.get("account_balance")
+    required_balance = first_error.get("required_balance")
+    if account_balance is not None and required_balance is not None:
+        print(f"insufficient Aleph balance: account has {account_balance}, required is {required_balance}")
+        raise SystemExit(0)
+if error_code is None:
+    print(json.dumps(details or {}))
+else:
+    print(f"error {error_code}: {json.dumps(details or {})}")
+PY
+)"
+        rm -f "${response_file}"
+        die "Aleph STORE message ${item_hash} was rejected: ${rejection_summary}"
+        ;;
+      "")
+        ;;
+      *)
+        ;;
+    esac
+
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      sleep "${delay_seconds}"
+    fi
+  done
+
+  rm -f "${response_file}"
+  die "Aleph STORE message ${item_hash} did not become processed after ${attempts} attempts."
+}
+
 upload_image() {
   local aleph_bin
   aleph_bin="$(resolve_aleph_bin)"
@@ -254,6 +335,8 @@ payload = json.loads(content)
 print(payload["item_hash"])
 PY
 )" || die "Failed to extract Aleph item hash from ${OUT_DIR}/store-message.json"
+
+  wait_for_aleph_message_processed "${ROOTFS_ITEM_HASH}"
 
   echo "Published rootfs CID: ${ROOTFS_CID}"
   echo "Published Aleph item hash: ${ROOTFS_ITEM_HASH}"
