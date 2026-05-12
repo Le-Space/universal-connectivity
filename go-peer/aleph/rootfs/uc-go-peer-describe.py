@@ -115,6 +115,7 @@ def build_probe_multiaddrs(env_values: dict[str, str], peer_id: str, listening_a
         "direct_tcp_multiaddrs": dedupe(direct_tcp_multiaddrs),
         "autotls_wss_multiaddrs": dedupe(autotls_multiaddrs),
         "proxy_wss_multiaddrs": dedupe(proxy_multiaddrs),
+        "browser_bootstrap_multiaddrs": dedupe(autotls_multiaddrs + proxy_multiaddrs),
         "probe_multiaddrs": dedupe(probe_multiaddrs),
     }
 

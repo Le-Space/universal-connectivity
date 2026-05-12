@@ -234,3 +234,22 @@ Example workflow usage:
     echo "Ports: ${{ steps.deploy_vm.outputs.mapped_ports_json }}"
     echo "Verification: ${{ steps.deploy_vm.outputs.verification_json }}"
 ```
+
+## Published Site Bootstrap Refresh
+
+When the reusable workflow is run with both `publish=true` and `deploy_vm=true`,
+it now performs a two-pass `js-peer` publish:
+
+1. Build and publish the rootfs image, rootfs manifests, and an initial
+   `js-peer` site.
+2. Deploy the `uc-go-peer` VM and wait for the guest to report its final relay
+   multiaddrs.
+3. Extract browser-dialable secure websocket relay addresses from the deployed
+   VM metadata.
+4. Rebuild `js-peer` with `NEXT_PUBLIC_RELAY_LISTEN_ADDRS` set to those final
+   deployed relay addresses.
+5. Republish the `js-peer` site and, on `main`, relink the custom domain to the
+   republished site.
+
+This keeps the live website bootstrap list aligned with the relay that was just
+deployed instead of leaving the site pointed at stale bootstrap addresses.

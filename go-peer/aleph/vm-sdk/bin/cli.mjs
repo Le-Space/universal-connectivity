@@ -77,6 +77,9 @@ async function emitDeployOutputs(deployResult) {
   const configurationJson = JSON.stringify(deployResult?.configuration ?? {})
   const verificationJson = JSON.stringify(deployResult?.verification ?? {})
   const probeMultiaddrsJson = JSON.stringify(deployResult?.configuration?.metadata?.probe_multiaddrs ?? [])
+  const browserBootstrapMultiaddrsJson = JSON.stringify(
+    deployResult?.configuration?.metadata?.browser_bootstrap_multiaddrs ?? []
+  )
   const relayPeerId = deployResult?.configuration?.metadata?.peer_id ?? ''
   const deploymentStatus = deployResult?.deploymentResult?.status ?? deployResult?.status ?? ''
 
@@ -98,6 +101,7 @@ async function emitDeployOutputs(deployResult) {
   await appendOutput('configuration_json', configurationJson)
   await appendOutput('relay_peer_id', relayPeerId)
   await appendOutput('probe_multiaddrs_json', probeMultiaddrsJson)
+  await appendOutput('browser_bootstrap_multiaddrs_json', browserBootstrapMultiaddrsJson)
   await appendOutput('verification_json', verificationJson)
   await appendOutput('verification_ok', deployResult?.verification?.ok ?? '')
   await appendOutput('port_forwarding_json', portForwardingJson)

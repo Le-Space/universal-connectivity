@@ -183,6 +183,9 @@ outputs:
   probe_multiaddrs_json:
     description: JSON array of relay multiaddrs to probe after deployment
     value: ${{ steps.deploy.outputs.probe_multiaddrs_json }}
+  browser_bootstrap_multiaddrs_json:
+    description: JSON array of browser-dialable secure websocket relay multiaddrs for js-peer bootstrap configuration
+    value: ${{ steps.deploy.outputs.browser_bootstrap_multiaddrs_json }}
   verification_json:
     description: JSON object with post-configure reachability checks
     value: ${{ steps.deploy.outputs.verification_json }}

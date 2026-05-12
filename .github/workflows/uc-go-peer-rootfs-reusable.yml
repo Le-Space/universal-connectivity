@@ -138,6 +138,9 @@ on:
       vm_probe_multiaddrs_json:
         description: JSON array of relay multiaddrs probed after deployment
         value: ${{ jobs.build-rootfs.outputs.vm_probe_multiaddrs_json }}
+      vm_browser_bootstrap_multiaddrs_json:
+        description: JSON array of browser-dialable secure websocket relay multiaddrs for js-peer bootstrap configuration
+        value: ${{ jobs.build-rootfs.outputs.vm_browser_bootstrap_multiaddrs_json }}
       vm_protocol_probe_ok:
         description: Whether the libp2p protocol probes passed for the deployed relay multiaddrs
         value: ${{ jobs.build-rootfs.outputs.vm_protocol_probe_ok }}
@@ -171,6 +174,7 @@ jobs:
       vm_verification_json: ${{ steps.export_outputs.outputs.vm_verification_json }}
       vm_relay_peer_id: ${{ steps.export_outputs.outputs.vm_relay_peer_id }}
       vm_probe_multiaddrs_json: ${{ steps.export_outputs.outputs.vm_probe_multiaddrs_json }}
+      vm_browser_bootstrap_multiaddrs_json: ${{ steps.export_outputs.outputs.vm_browser_bootstrap_multiaddrs_json }}
       vm_protocol_probe_ok: ${{ steps.export_outputs.outputs.vm_protocol_probe_ok }}
       vm_protocol_probe_json: ${{ steps.export_outputs.outputs.vm_protocol_probe_json }}
 
@@ -494,17 +498,134 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Prepare js-peer relay bootstrap env
+        if: ${{ inputs.publish && inputs.deploy_vm }}
+        id: js_peer_bootstrap
+        env:
+          BROWSER_BOOTSTRAP_MULTIADDRS_JSON: ${{ steps.deploy_vm.outputs.browser_bootstrap_multiaddrs_json }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          raw = os.environ.get("BROWSER_BOOTSTRAP_MULTIADDRS_JSON", "[]")
+          addrs = json.loads(raw)
+          csv_value = ",".join(addr.strip() for addr in addrs if addr and addr.strip())
+          print(f"json={json.dumps(addrs)}")
+          print(f"csv={csv_value}")
+          print(f"count={len(addrs)}")
+          print(f"available={'true' if len(addrs) > 0 else 'false'}")
+          PY
+
+      - name: Rebuild js-peer site with deployed relay bootstrap addrs
+        if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' }}
+        working-directory: universal-connectivity/js-peer
+        env:
+          NEXT_PUBLIC_RELAY_LISTEN_ADDRS: ${{ steps.js_peer_bootstrap.outputs.csv }}
+        run: |
+          npm run build
+
+      - name: Upload republished js-peer site to IPFS
+        if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' }}
+        id: redeploy_site
+        working-directory: universal-connectivity
+        run: |
+          set -euo pipefail
+
+          result="$(python3 go-peer/aleph/publish-static-site.py js-peer/out)"
+          echo "${result}" | tee /tmp/js-peer-ipfs-upload-republished.json
+
+          ipfs_cid_v0="$(echo "${result}" | jq -r '.cid_v0')"
+          ipfs_cid_v1="$(echo "${result}" | jq -r '.cid_v1')"
+
+          if [[ -z "${ipfs_cid_v0}" || -z "${ipfs_cid_v1}" || "${ipfs_cid_v0}" == "null" || "${ipfs_cid_v1}" == "null" ]]; then
+            echo "Failed to extract republished IPFS CIDs from upload result: ${result}" >&2
+            exit 1
+          fi
+
+          echo "FINAL_IPFS_CID_V0=${ipfs_cid_v0}" >> "$GITHUB_ENV"
+          echo "FINAL_IPFS_CID_V1=${ipfs_cid_v1}" >> "$GITHUB_ENV"
+          echo "FINAL_URL=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_ENV"
+          echo "url=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_OUTPUT"
+
+      - name: Pin republished js-peer site on Aleph
+        if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' }}
+        working-directory: universal-connectivity
+        run: |
+          set -euo pipefail
+
+          tmp_json="$(mktemp)"
+          err_log="$(mktemp)"
+          status_response="$(mktemp)"
+
+          echo "Pinning republished js-peer IPFS CID ${FINAL_IPFS_CID_V0} on Aleph..."
+          if ! aleph file pin "${FINAL_IPFS_CID_V0}" >"${tmp_json}" 2>"${err_log}"; then
+            echo "Aleph pin failed for republished js-peer CID ${FINAL_IPFS_CID_V0}" >&2
+            if [[ -s "${err_log}" ]]; then
+              echo "--- aleph stderr ---" >&2
+              cat "${err_log}" >&2
+            fi
+            if [[ -s "${tmp_json}" ]]; then
+              echo "--- aleph stdout ---" >&2
+              cat "${tmp_json}" >&2
+            fi
+            exit 1
+          fi
+
+          if [[ ! -s "${tmp_json}" ]]; then
+            echo "Aleph pin returned an empty response for republished js-peer CID ${FINAL_IPFS_CID_V0}" >&2
+            exit 1
+          fi
+
+          item_hash="$(python3 -c 'import json, sys; from pathlib import Path; payload = json.loads(Path(sys.argv[1]).read_text()); item_hash = payload.get("item_hash", ""); sys.exit("Aleph pin response did not include item_hash") if not item_hash else print(item_hash)' "${tmp_json}")"
+
+          echo "FINAL_ITEM_HASH=${item_hash}" >> "$GITHUB_ENV"
+          echo "Waiting for republished js-peer Aleph STORE message ${item_hash} to become processed..."
+          python3 go-peer/aleph/wait-for-aleph-message.py \
+            "https://api2.aleph.im" \
+            "${item_hash}" \
+            60 \
+            5 \
+            > "${status_response}"
+          cat "${status_response}"
+
+      - name: Relink production domain to republished js-peer site
+        if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' && github.ref == 'refs/heads/main' && inputs.aleph_domain != '' }}
+        run: |
+          if [[ -z "${FINAL_ITEM_HASH:-}" ]]; then
+            echo "FINAL_ITEM_HASH is missing after js-peer republish"
+            exit 1
+          fi
+          mkdir -p /home/runner/.aleph-im/private-keys
+          echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
+          aleph domain detach "${{ inputs.aleph_domain }}" --no-ask || true
+          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "$FINAL_ITEM_HASH" --catch-all-path /index.html --no-ask
+
       - name: Export reusable workflow outputs
         if: ${{ always() }}
         id: export_outputs
         run: |
+          final_site_url="${FINAL_URL:-${initial_site_url}}"
+          final_manifest_latest_url="${initial_manifest_latest_url}"
+          final_manifest_versioned_url="${initial_manifest_versioned_url}"
+
+          if [[ -n "${final_site_url}" ]]; then
+            if [[ -n "${{ inputs.aleph_domain }}" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+              final_manifest_latest_url="https://${{ inputs.aleph_domain }}/rootfs/uc-go-peer/latest.json"
+              final_manifest_versioned_url="https://${{ inputs.aleph_domain }}/rootfs/uc-go-peer/${ROOTFS_VERSION}.json"
+            else
+              final_manifest_latest_url="${final_site_url%/}/rootfs/uc-go-peer/latest.json"
+              final_manifest_versioned_url="${final_site_url%/}/rootfs/uc-go-peer/${ROOTFS_VERSION}.json"
+            fi
+          fi
+
           {
             echo "rootfs_version=${{ steps.collect_rootfs_outputs.outputs.rootfs_version }}"
             echo "rootfs_cid=${{ steps.collect_rootfs_outputs.outputs.rootfs_cid }}"
             echo "rootfs_item_hash=${{ steps.collect_rootfs_outputs.outputs.rootfs_item_hash }}"
-            echo "manifest_latest_url=${{ steps.collect_rootfs_outputs.outputs.manifest_latest_url }}"
-            echo "manifest_versioned_url=${{ steps.collect_rootfs_outputs.outputs.manifest_versioned_url }}"
-            echo "site_url=${{ steps.collect_rootfs_outputs.outputs.site_url }}"
+            echo "manifest_latest_url=${final_manifest_latest_url}"
+            echo "manifest_versioned_url=${final_manifest_versioned_url}"
+            echo "site_url=${final_site_url}"
             echo "vm_instance_item_hash=${vm_instance_item_hash}"
             echo "vm_status=${vm_status}"
             echo "vm_host_ipv4=${vm_host_ipv4}"
@@ -516,10 +637,14 @@ jobs:
             echo "vm_verification_json=${vm_verification_json}"
             echo "vm_relay_peer_id=${vm_relay_peer_id}"
             echo "vm_probe_multiaddrs_json=${vm_probe_multiaddrs_json}"
+            echo "vm_browser_bootstrap_multiaddrs_json=${vm_browser_bootstrap_multiaddrs_json}"
             echo "vm_protocol_probe_ok=${vm_protocol_probe_ok}"
             echo "vm_protocol_probe_json=${vm_protocol_probe_json}"
           } >> "$GITHUB_OUTPUT"
         env:
+          initial_site_url: ${{ steps.collect_rootfs_outputs.outputs.site_url }}
+          initial_manifest_latest_url: ${{ steps.collect_rootfs_outputs.outputs.manifest_latest_url }}
+          initial_manifest_versioned_url: ${{ steps.collect_rootfs_outputs.outputs.manifest_versioned_url }}
           vm_instance_item_hash: ${{ steps.deploy_vm.outputs.instance_item_hash }}
           vm_status: ${{ steps.deploy_vm.outputs.instance_status }}
           vm_host_ipv4: ${{ steps.deploy_vm.outputs.host_ipv4 }}
@@ -531,6 +656,7 @@ jobs:
           vm_verification_json: ${{ steps.deploy_vm.outputs.verification_json }}
           vm_relay_peer_id: ${{ steps.deploy_vm.outputs.relay_peer_id }}
           vm_probe_multiaddrs_json: ${{ steps.deploy_vm.outputs.probe_multiaddrs_json }}
+          vm_browser_bootstrap_multiaddrs_json: ${{ steps.deploy_vm.outputs.browser_bootstrap_multiaddrs_json }}
           vm_protocol_probe_ok: ${{ steps.protocol_probe.outputs.ok }}
           vm_protocol_probe_json: ${{ steps.protocol_probe.outputs.json }}
 
@@ -585,10 +711,19 @@ jobs:
               echo "- VM SSH command: \`${{ steps.export_outputs.outputs.vm_ssh_command }}\`"
               echo "- VM verification ok: \`${{ steps.export_outputs.outputs.vm_verification_ok }}\`"
               echo "- VM protocol probe ok: \`${{ steps.export_outputs.outputs.vm_protocol_probe_ok }}\`"
+              echo "- Browser bootstrap multiaddrs available: \`${{ steps.js_peer_bootstrap.outputs.available || 'false' }}\`"
               echo
               echo '```json'
               printf '%s\n' "${VM_VERIFICATION_JSON}"
               echo '```'
+              if [[ -n "${{ steps.export_outputs.outputs.vm_browser_bootstrap_multiaddrs_json }}" ]]; then
+                echo
+                echo "#### js-peer Bootstrap Multiaddrs"
+                echo
+                echo '```json'
+                printf '%s\n' "${{ steps.export_outputs.outputs.vm_browser_bootstrap_multiaddrs_json }}"
+                echo '```'
+              fi
               if [[ -n "${{ steps.export_outputs.outputs.vm_protocol_probe_json }}" ]]; then
                 echo
                 echo "#### Relay Protocol Probe"
