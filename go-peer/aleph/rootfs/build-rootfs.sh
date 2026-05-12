@@ -14,11 +14,14 @@ CHANNEL="${CHANNEL:-ALEPH-CLOUDSOLUTIONS}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 IPFS_ADD_URL="${IPFS_ADD_URL:-https://ipfs.aleph.cloud/api/v0/add}"
+IPFS_GATEWAY_URL="${IPFS_GATEWAY_URL:-https://ipfs.aleph.cloud/ipfs}"
 ALEPH_API_HOST="${ALEPH_API_HOST:-https://api2.aleph.im}"
 ALEPH_MESSAGE_WAIT_ATTEMPTS="${ALEPH_MESSAGE_WAIT_ATTEMPTS:-60}"
 ALEPH_MESSAGE_WAIT_DELAY_SECONDS="${ALEPH_MESSAGE_WAIT_DELAY_SECONDS:-5}"
 ALEPH_PIN_ATTEMPTS="${ALEPH_PIN_ATTEMPTS:-4}"
 ALEPH_PIN_DELAY_SECONDS="${ALEPH_PIN_DELAY_SECONDS:-10}"
+IPFS_GATEWAY_WAIT_ATTEMPTS="${IPFS_GATEWAY_WAIT_ATTEMPTS:-30}"
+IPFS_GATEWAY_WAIT_DELAY_SECONDS="${IPFS_GATEWAY_WAIT_DELAY_SECONDS:-10}"
 ROOTFS_CID=""
 ROOTFS_ITEM_HASH=""
 
@@ -278,6 +281,60 @@ PY
   die "Aleph STORE message ${item_hash} did not become processed after ${attempts} attempts."
 }
 
+wait_for_ipfs_cid_available() {
+  require curl
+
+  local cid="${1:?missing cid}"
+  local attempts="${2:-${IPFS_GATEWAY_WAIT_ATTEMPTS}}"
+  local delay_seconds="${3:-${IPFS_GATEWAY_WAIT_DELAY_SECONDS}}"
+  local gateway_base="${4:-${IPFS_GATEWAY_URL}}"
+  local gateway_url="${gateway_base%/}/${cid}"
+  local headers_file
+  headers_file="$(mktemp)"
+
+  local attempt
+  for attempt in $(seq 1 "${attempts}"); do
+    : > "${headers_file}"
+    if curl --silent --show-error --location \
+      --range 0-0 \
+      --dump-header "${headers_file}" \
+      --output /dev/null \
+      "${gateway_url}"; then
+      local http_status
+      http_status="$(python3 - "${headers_file}" <<'PY'
+import sys
+from pathlib import Path
+
+status_lines = []
+for line in Path(sys.argv[1]).read_text(errors="replace").splitlines():
+    if line.startswith("HTTP/"):
+        status_lines.append(line)
+
+if not status_lines:
+    print("")
+else:
+    print(status_lines[-1].split()[1])
+PY
+)"
+
+      case "${http_status}" in
+        200|206)
+          rm -f "${headers_file}"
+          return 0
+          ;;
+      esac
+    fi
+
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      echo "CID ${cid} is not retrievable from ${gateway_base} yet (attempt ${attempt}/${attempts}); retrying in ${delay_seconds}s..." >&2
+      sleep "${delay_seconds}"
+    fi
+  done
+
+  rm -f "${headers_file}"
+  die "CID ${cid} did not become retrievable from ${gateway_base} after ${attempts} attempts."
+}
+
 upload_image() {
   local aleph_bin
   aleph_bin="$(resolve_aleph_bin)"
@@ -315,6 +372,9 @@ if not cid:
 print(cid)
 PY
 )" || die "Failed to extract CID from ${OUT_DIR}/ipfs-add-response.jsonl"
+
+  echo "Waiting for CID ${ROOTFS_CID} to become retrievable via ${IPFS_GATEWAY_URL}..."
+  wait_for_ipfs_cid_available "${ROOTFS_CID}"
 
   echo "Pinning CID ${ROOTFS_CID} on Aleph Cloud..."
   local attempt
