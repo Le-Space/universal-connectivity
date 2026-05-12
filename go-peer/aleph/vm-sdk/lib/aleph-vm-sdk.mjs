@@ -573,19 +573,27 @@ function isInvalidMessageFormatResponse(response, payload) {
   return false
 }
 
-async function postBroadcastPayload(body, apiHost, trace = null) {
+async function postBroadcastPayload(body, apiHost, trace = null, timeoutMs = 90000, attempts = 4) {
   const { response, payload } = await fetchJson(`${apiHost}/api/v0/messages`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json'
     },
     body: JSON.stringify(body)
-  }, 30000, 3, trace)
+  }, timeoutMs, attempts, trace)
   return { response, payload }
 }
 
-export async function broadcastAlephMessage(message, apiHost = ALEPH_API_HOST, sync = false, trace = null) {
+export async function broadcastAlephMessage(
+  message,
+  apiHost = ALEPH_API_HOST,
+  sync = false,
+  trace = null,
+  options = {}
+) {
   const attempts = [{ sync, message }, { ...message, sync }, { ...message }]
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 90000
+  const requestAttempts = Number(options.requestAttempts) > 0 ? Number(options.requestAttempts) : 4
 
   for (let index = 0; index < attempts.length; index += 1) {
     emitTrace(trace, 'aleph-broadcast-attempt', {
@@ -593,7 +601,7 @@ export async function broadcastAlephMessage(message, apiHost = ALEPH_API_HOST, s
       attempts: attempts.length,
       body: attempts[index]
     })
-    const { response, payload } = await postBroadcastPayload(attempts[index], apiHost, trace)
+    const { response, payload } = await postBroadcastPayload(attempts[index], apiHost, trace, timeoutMs, requestAttempts)
     if (response.ok || response.status === 202) {
       return {
         httpStatus: response.status,
