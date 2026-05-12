@@ -81,6 +81,11 @@ on:
         required: false
         default: false
         type: boolean
+      retain_successful_deployments:
+        description: Keep only the latest N successful published+deployed uc-go-peer deployments and forget older Aleph INSTANCE/STORE messages
+        required: false
+        default: '2'
+        type: string
     secrets:
       ALEPH_PRIVATE_KEY:
         required: false
@@ -147,6 +152,9 @@ on:
       vm_protocol_probe_json:
         description: JSON lines emitted by the relay protocol probe step
         value: ${{ jobs.build-rootfs.outputs.vm_protocol_probe_json }}
+      retention_result_json:
+        description: JSON summary of the successful deployment retention cleanup
+        value: ${{ jobs.build-rootfs.outputs.retention_result_json }}
 
 permissions:
   contents: read
@@ -177,6 +185,7 @@ jobs:
       vm_browser_bootstrap_multiaddrs_json: ${{ steps.export_outputs.outputs.vm_browser_bootstrap_multiaddrs_json }}
       vm_protocol_probe_ok: ${{ steps.export_outputs.outputs.vm_protocol_probe_ok }}
       vm_protocol_probe_json: ${{ steps.export_outputs.outputs.vm_protocol_probe_json }}
+      retention_result_json: ${{ steps.export_outputs.outputs.retention_result_json }}
 
     steps:
       - name: Checkout universal-connectivity
@@ -330,6 +339,7 @@ jobs:
 
       - name: Pin js-peer site on Aleph
         if: ${{ inputs.publish }}
+        id: pin_site
         working-directory: universal-connectivity
         run: |
           set -euo pipefail
@@ -360,6 +370,7 @@ jobs:
           item_hash="$(python3 -c 'import json, sys; from pathlib import Path; payload = json.loads(Path(sys.argv[1]).read_text()); item_hash = payload.get("item_hash", ""); sys.exit("Aleph pin response did not include item_hash") if not item_hash else print(item_hash)' "${tmp_json}")"
 
           echo "ITEM_HASH=${item_hash}" >> "$GITHUB_ENV"
+          echo "item_hash=${item_hash}" >> "$GITHUB_OUTPUT"
           echo "Waiting for js-peer Aleph STORE message ${item_hash} to become processed..."
           python3 go-peer/aleph/wait-for-aleph-message.py \
             "https://api2.aleph.im" \
@@ -550,6 +561,7 @@ jobs:
 
       - name: Pin republished js-peer site on Aleph
         if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' }}
+        id: repin_site
         working-directory: universal-connectivity
         run: |
           set -euo pipefail
@@ -580,6 +592,7 @@ jobs:
           item_hash="$(python3 -c 'import json, sys; from pathlib import Path; payload = json.loads(Path(sys.argv[1]).read_text()); item_hash = payload.get("item_hash", ""); sys.exit("Aleph pin response did not include item_hash") if not item_hash else print(item_hash)' "${tmp_json}")"
 
           echo "FINAL_ITEM_HASH=${item_hash}" >> "$GITHUB_ENV"
+          echo "item_hash=${item_hash}" >> "$GITHUB_OUTPUT"
           echo "Waiting for republished js-peer Aleph STORE message ${item_hash} to become processed..."
           python3 go-peer/aleph/wait-for-aleph-message.py \
             "https://api2.aleph.im" \
@@ -600,6 +613,23 @@ jobs:
           echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
           aleph domain detach "${{ inputs.aleph_domain }}" --no-ask || true
           aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "$FINAL_ITEM_HASH" --catch-all-path /index.html --no-ask
+
+      - name: Retain latest successful deployments
+        if: ${{ inputs.publish && inputs.deploy_vm && fromJSON(inputs.retain_successful_deployments) > 0 }}
+        id: retention
+        working-directory: universal-connectivity/go-peer/aleph/vm-sdk
+        env:
+          ALEPH_VM_MODE: retain-successful-deployments
+          ALEPH_VM_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
+          ALEPH_VM_API_HOST: https://api2.aleph.im
+          ALEPH_VM_CHANNEL: TEST
+          ALEPH_VM_RETENTION_KEEP_COUNT: ${{ inputs.retain_successful_deployments }}
+          ALEPH_VM_RETENTION_EXTRA_FORGET_HASHES_JSON: ${{ steps.repin_site.outputs.item_hash != '' && format('["{0}"]', steps.pin_site.outputs.item_hash) || '[]' }}
+          ALEPH_VM_RETENTION_CURRENT_RECORD_JSON: >-
+            {"instance_item_hash":"${{ steps.deploy_vm.outputs.instance_item_hash }}","rootfs_item_hash":"${{ steps.collect_rootfs_outputs.outputs.rootfs_item_hash }}","rootfs_cid":"${{ steps.collect_rootfs_outputs.outputs.rootfs_cid }}","site_item_hash":"${{ steps.repin_site.outputs.item_hash != '' && steps.repin_site.outputs.item_hash || steps.pin_site.outputs.item_hash }}","site_url":"${{ steps.redeploy_site.outputs.url != '' && steps.redeploy_site.outputs.url || steps.deploy_site.outputs.url }}","relay_peer_id":"${{ steps.deploy_vm.outputs.relay_peer_id }}","rootfs_version":"${{ env.ROOTFS_VERSION }}","vm_name":"${{ inputs.vm_name }}","deployed_at":"${{ github.run_id }}-${{ github.run_attempt }}"}
+        run: |
+          npm ci --no-fund --no-audit
+          node ./bin/cli.mjs
 
       - name: Export reusable workflow outputs
         if: ${{ always() }}
@@ -640,6 +670,7 @@ jobs:
             echo "vm_browser_bootstrap_multiaddrs_json=${vm_browser_bootstrap_multiaddrs_json}"
             echo "vm_protocol_probe_ok=${vm_protocol_probe_ok}"
             echo "vm_protocol_probe_json=${vm_protocol_probe_json}"
+            echo "retention_result_json=${retention_result_json}"
           } >> "$GITHUB_OUTPUT"
         env:
           initial_site_url: ${{ steps.collect_rootfs_outputs.outputs.site_url }}
@@ -659,6 +690,7 @@ jobs:
           vm_browser_bootstrap_multiaddrs_json: ${{ steps.deploy_vm.outputs.browser_bootstrap_multiaddrs_json }}
           vm_protocol_probe_ok: ${{ steps.protocol_probe.outputs.ok }}
           vm_protocol_probe_json: ${{ steps.protocol_probe.outputs.json }}
+          retention_result_json: ${{ steps.retention.outputs.retention_result_json }}
 
       - name: Summarize rootfs build
         if: ${{ always() }}
@@ -676,6 +708,7 @@ jobs:
             echo "- Publish to Aleph: \`${{ inputs.publish }}\`"
             echo "- Deploy VM after publish: \`${{ inputs.deploy_vm }}\`"
             echo "- Enable proxy-backed Caddy/WSS: \`${{ inputs.vm_enable_caddy_proxy }}\`"
+            echo "- Keep successful deployments: \`${{ inputs.retain_successful_deployments }}\`"
             echo "- Main service: \`${ROOTFS_SERVICE_MAIN}\`"
             echo "- Bootstrap service: \`${ROOTFS_SERVICE_BOOTSTRAP}\`"
             echo "- Manifest copy target: \`${ROOTFS_MANIFEST_COPY_TARGET}\`"
@@ -730,6 +763,14 @@ jobs:
                 echo
                 echo '```json'
                 printf '%s\n' "${{ steps.export_outputs.outputs.vm_protocol_probe_json }}"
+                echo '```'
+              fi
+              if [[ -n "${{ steps.export_outputs.outputs.retention_result_json }}" ]]; then
+                echo
+                echo "#### Retention Cleanup"
+                echo
+                echo '```json'
+                printf '%s\n' "${{ steps.export_outputs.outputs.retention_result_json }}"
                 echo '```'
               fi
             fi

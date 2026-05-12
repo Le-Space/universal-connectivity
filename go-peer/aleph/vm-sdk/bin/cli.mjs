@@ -5,7 +5,8 @@ import {
   CRN_LIST_URL,
   defaultRequiredPorts,
   deployVmAndWait,
-  listGeocodedCrns
+  listGeocodedCrns,
+  retainSuccessfulDeployments
 } from '../lib/aleph-vm-sdk.mjs'
 
 function required(name) {
@@ -158,6 +159,34 @@ async function main() {
       `- Geocoded CRNs: \`${geocodedCrns.length}\``
     ])
     process.stdout.write(`${payload}\n`)
+    return
+  }
+
+  if (mode === 'retain-successful-deployments') {
+    const result = await retainSuccessfulDeployments({
+      privateKey: required('ALEPH_VM_PRIVATE_KEY'),
+      apiHost: optional('ALEPH_VM_API_HOST', ALEPH_API_HOST),
+      keepCount: asInteger('ALEPH_VM_RETENTION_KEEP_COUNT', 2),
+      currentRecord: asJson('ALEPH_VM_RETENTION_CURRENT_RECORD_JSON', '{}'),
+      extraForgetHashes: asJson('ALEPH_VM_RETENTION_EXTRA_FORGET_HASHES_JSON', '[]'),
+      channel: optional('ALEPH_VM_CHANNEL', 'TEST'),
+      log: actionLog
+    })
+
+    const json = JSON.stringify(result)
+    await appendOutput('retention_result_json', json)
+    await appendOutput('retention_forget_hashes_json', JSON.stringify(result.forgetHashes ?? []))
+    await appendOutput('retention_pruned_count', result.prunedRecords?.length ?? 0)
+    await appendOutput('retention_retained_count', result.retainedRecords?.length ?? 0)
+    await appendSummary([
+      '## Successful deployment retention',
+      '',
+      `- Keep count: \`${result.keepCount}\``,
+      `- Retained deployments: \`${result.retainedRecords?.length ?? 0}\``,
+      `- Pruned deployments: \`${result.prunedRecords?.length ?? 0}\``,
+      `- Forgotten hashes: \`${(result.forgetHashes ?? []).length}\``
+    ])
+    process.stdout.write(`${json}\n`)
     return
   }
 

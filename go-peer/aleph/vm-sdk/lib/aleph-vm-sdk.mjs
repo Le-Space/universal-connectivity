@@ -10,6 +10,7 @@ export const SCHEDULER_ALLOCATION_URL = 'https://scheduler.api.aleph.cloud/api/v
 export const TWO_N_SIX_HASH_URL = 'https://api.2n6.me/api/hash'
 export const COUNTRY_IS_API_BASE_URL = 'https://api.country.is'
 export const DNS_RESOLVE_URL = 'https://dns.google/resolve'
+export const SUCCESSFUL_DEPLOYMENTS_AGGREGATE_KEY = 'uc-go-peer-successful-deployments'
 
 const SSH_PUBLIC_KEY_PATTERN =
   /^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/]+={0,3}(?:\s+.+)?$/
@@ -610,16 +611,47 @@ export async function broadcastAlephMessage(message, apiHost = ALEPH_API_HOST, s
 }
 
 export async function fetchPortForwardAggregate(address, apiHost = ALEPH_API_HOST, trace = null) {
+  return fetchAggregateKey(address, 'port-forwarding', apiHost, trace)
+}
+
+export async function fetchAggregateKey(address, key, apiHost = ALEPH_API_HOST, trace = null) {
   const requestUrl = new URL(`/api/v0/aggregates/${address}.json`, apiHost)
-  requestUrl.searchParams.set('keys', 'port-forwarding')
+  requestUrl.searchParams.set('keys', key)
   const { response, payload } = await fetchJson(requestUrl, {}, 30000, 3, trace)
   if (response.status === 404) return {}
   if (!response.ok) {
-    throw new Error(`Port-forward aggregate request failed: ${response.status}`)
+    throw new Error(`Aggregate request failed for key ${key}: ${response.status}`)
   }
-  const aggregate = payload?.data?.['port-forwarding']
-  if (!aggregate || typeof aggregate !== 'object' || Array.isArray(aggregate)) return {}
-  return aggregate
+  return payload?.data?.[key] ?? {}
+}
+
+async function publishAggregateKey(args) {
+  const content = {
+    address: args.sender,
+    key: args.key,
+    content: args.content,
+    time: args.now ?? Date.now() / 1000
+  }
+
+  const unsignedMessage = await createUnsignedAggregateMessage({
+    sender: args.sender,
+    content,
+    channel: args.channel
+  })
+  const message = await signInstanceMessage(unsignedMessage, args.privateKey)
+  const { response, httpStatus } = await broadcastAlephMessage(message, args.apiHost ?? ALEPH_API_HOST, false, args.trace)
+  const status = normalizeMessageStatus(response?.message_status ?? (httpStatus === 202 ? 'pending' : undefined))
+
+  if (status === 'rejected') {
+    throw new Error(`Aggregate key ${args.key} was rejected by Aleph: ${JSON.stringify(response?.details ?? response)}`)
+  }
+
+  return {
+    itemHash: message.item_hash,
+    status,
+    response,
+    httpStatus
+  }
 }
 
 async function createUnsignedAggregateMessage(args) {
@@ -735,6 +767,119 @@ async function cleanupFailedDeployment(args) {
     return {
       error: error instanceof Error ? error.message : String(error)
     }
+  }
+}
+
+function normalizeRetentionRecord(record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null
+  const instanceItemHash = asString(record.instance_item_hash)
+  if (!instanceItemHash) return null
+
+  return {
+    instance_item_hash: instanceItemHash,
+    rootfs_item_hash: asString(record.rootfs_item_hash) ?? '',
+    site_item_hash: asString(record.site_item_hash) ?? '',
+    rootfs_cid: asString(record.rootfs_cid) ?? '',
+    site_url: asString(record.site_url) ?? '',
+    relay_peer_id: asString(record.relay_peer_id) ?? '',
+    rootfs_version: asString(record.rootfs_version) ?? '',
+    deployed_at: asString(record.deployed_at) ?? new Date().toISOString(),
+    vm_name: asString(record.vm_name) ?? ''
+  }
+}
+
+function normalizeRetentionLedger(value) {
+  if (Array.isArray(value)) {
+    return value.map(normalizeRetentionRecord).filter(Boolean)
+  }
+
+  if (value && typeof value === 'object' && Array.isArray(value.deployments)) {
+    return value.deployments.map(normalizeRetentionRecord).filter(Boolean)
+  }
+
+  return []
+}
+
+function retentionRecordId(record) {
+  return [record.instance_item_hash, record.rootfs_item_hash, record.site_item_hash].join(':')
+}
+
+function hashesFromRetentionRecord(record) {
+  return [record.instance_item_hash, record.rootfs_item_hash, record.site_item_hash].filter(Boolean)
+}
+
+export async function retainSuccessfulDeployments(args) {
+  const wallet = new Wallet(args.privateKey)
+  const sender = args.sender ?? wallet.address
+  const keepCount = Math.max(0, Number.parseInt(String(args.keepCount ?? 0), 10) || 0)
+  const aggregateKey = asString(args.aggregateKey) ?? SUCCESSFUL_DEPLOYMENTS_AGGREGATE_KEY
+  const currentRecord = normalizeRetentionRecord(args.currentRecord)
+
+  if (!currentRecord) {
+    throw new Error('retainSuccessfulDeployments requires a current deployment record with instance_item_hash.')
+  }
+
+  const existingValue = await fetchAggregateKey(sender, aggregateKey, args.apiHost ?? ALEPH_API_HOST, args.trace)
+  const existingRecords = normalizeRetentionLedger(existingValue)
+  const mergedRecords = [currentRecord, ...existingRecords]
+  const uniqueRecords = []
+  const seenIds = new Set()
+
+  for (const record of mergedRecords) {
+    const id = retentionRecordId(record)
+    if (seenIds.has(id)) continue
+    seenIds.add(id)
+    uniqueRecords.push(record)
+  }
+
+  const retainedRecords = keepCount > 0 ? uniqueRecords.slice(0, keepCount) : []
+  const prunedRecords = keepCount > 0 ? uniqueRecords.slice(keepCount) : uniqueRecords
+  const retainedHashes = new Set(retainedRecords.flatMap(hashesFromRetentionRecord))
+  const extraForgetHashes = [...new Set((args.extraForgetHashes ?? []).filter(Boolean))]
+  const forgetHashes = [...new Set([...prunedRecords.flatMap(hashesFromRetentionRecord), ...extraForgetHashes])].filter(
+    (hash) => !retainedHashes.has(hash)
+  )
+
+  const aggregateContent = {
+    keep: keepCount,
+    updated_at: new Date().toISOString(),
+    deployments: retainedRecords
+  }
+
+  const aggregatePublication = await publishAggregateKey({
+    privateKey: args.privateKey,
+    sender,
+    key: aggregateKey,
+    content: aggregateContent,
+    channel: args.channel,
+    apiHost: args.apiHost,
+    now: args.now,
+    trace: args.trace
+  })
+
+  let forgetResult = null
+  if (forgetHashes.length > 0) {
+    forgetResult = await forgetAlephMessages({
+      privateKey: args.privateKey,
+      sender,
+      hashes: forgetHashes,
+      reason: args.reason ?? `Prune successful deployments beyond retention limit ${keepCount}`,
+      channel: args.channel,
+      apiHost: args.apiHost,
+      now: args.now,
+      trace: args.trace
+    })
+  }
+
+  return {
+    sender,
+    aggregateKey,
+    keepCount,
+    aggregatePublication,
+    retainedRecords,
+    prunedRecords,
+    forgetHashes,
+    forgetResult
   }
 }
 
