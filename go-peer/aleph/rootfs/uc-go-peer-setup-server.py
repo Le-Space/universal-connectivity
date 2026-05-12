@@ -14,6 +14,8 @@ READY_FILE = os.environ.get("READY_FILE", "/etc/default/uc-go-peer.ready")
 CONFIGURE_SCRIPT = "/usr/local/sbin/uc-go-peer-configure.sh"
 DESCRIBE_SCRIPT = "/usr/local/sbin/uc-go-peer-describe.py"
 BOOTSTRAP_SERVICE = os.environ.get("BOOTSTRAP_SERVICE", "uc-go-peer-bootstrap.service")
+METADATA_FILE = os.environ.get("METADATA_FILE", "/run/uc-go-peer-setup-metadata.json")
+METADATA_ERROR_FILE = os.environ.get("METADATA_ERROR_FILE", "/run/uc-go-peer-setup-metadata.error")
 
 
 def _cors_headers(handler: BaseHTTPRequestHandler) -> None:
@@ -68,6 +70,10 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
+        if self._request_path() == "/metadata":
+            self._handle_metadata()
+            return
+
         if self._request_path() not in ("/", "/health"):
             self._send_json(404, {"status": "not-found"})
             return
@@ -78,8 +84,28 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "waiting-for-port-mapping",
                 "ready": os.path.exists(READY_FILE),
                 "env_file": ENV_FILE,
+                "metadata_ready": os.path.exists(METADATA_FILE),
             },
         )
+
+    def _handle_metadata(self) -> None:
+        if os.path.exists(METADATA_FILE):
+            with open(METADATA_FILE, encoding="utf-8") as handle:
+                metadata = json.load(handle)
+            self._send_json(200, {"status": "ready", "metadata": metadata})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()  # type: ignore[arg-type]
+            threading.Thread(target=_stop_bootstrap_service, daemon=True).start()
+            return
+
+        if os.path.exists(METADATA_ERROR_FILE):
+            with open(METADATA_ERROR_FILE, encoding="utf-8") as handle:
+                error_message = handle.read().strip() or "metadata generation failed"
+            self._send_json(500, {"status": "error", "error": error_message})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()  # type: ignore[arg-type]
+            threading.Thread(target=_stop_bootstrap_service, daemon=True).start()
+            return
+
+        self._send_json(202, {"status": "pending"})
 
     def do_POST(self) -> None:  # noqa: N802
         if self._request_path() != "/configure":
@@ -143,36 +169,47 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        metadata = None
-        metadata_error = None
-        try:
-            describe = subprocess.run(
-                [DESCRIBE_SCRIPT],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            metadata = json.loads(describe.stdout.strip() or "{}")
-        except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
-            metadata_error = str(error)
+        _clear_metadata_state()
+        threading.Thread(target=_generate_metadata_files, daemon=True).start()
 
         self._send_json(
             200,
             {
                 "status": "configured",
                 "stdout": result.stdout.strip(),
-                "metadata": metadata,
-                "metadata_error": metadata_error,
+                "metadata_pending": True,
             },
         )
-        threading.Thread(target=self.server.shutdown, daemon=True).start()  # type: ignore[arg-type]
-        threading.Thread(target=_stop_bootstrap_service, daemon=True).start()
 
 
 def _stop_bootstrap_service() -> None:
     # Give the HTTP response a brief head start, then stop the temporary setup service.
     time.sleep(1)
     subprocess.run(["systemctl", "stop", BOOTSTRAP_SERVICE], check=False)
+
+
+def _clear_metadata_state() -> None:
+    for path in (METADATA_FILE, METADATA_ERROR_FILE):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
+
+def _generate_metadata_files() -> None:
+    try:
+        describe = subprocess.run(
+            [DESCRIBE_SCRIPT],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(describe.stdout.strip() or "{}")
+        with open(METADATA_FILE, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+    except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        with open(METADATA_ERROR_FILE, "w", encoding="utf-8") as handle:
+            handle.write(str(error))
 
 
 def main() -> None:

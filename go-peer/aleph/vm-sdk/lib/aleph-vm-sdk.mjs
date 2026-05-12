@@ -1349,7 +1349,7 @@ export async function configureUcGoPeer(args) {
       },
       body: JSON.stringify(payload)
     },
-    Number(args.timeoutMs ?? 30000)
+    Number(args.timeoutMs ?? 180000)
   )
 
   if (!response.ok) {
@@ -1359,6 +1359,48 @@ export async function configureUcGoPeer(args) {
   }
 
   return responsePayload
+}
+
+export async function fetchUcGoPeerMetadata(args) {
+  if (!args.hostIpv4) {
+    throw new Error('Missing host IPv4 for uc-go-peer metadata retrieval.')
+  }
+  if (!args.setupPort) {
+    throw new Error('Missing mapped setup port for uc-go-peer metadata retrieval.')
+  }
+
+  const attempts = Number(args.attempts ?? 60)
+  const delayMs = Number(args.delayMs ?? 3000)
+  const timeoutMs = Number(args.timeoutMs ?? 180000)
+  let lastPayload = null
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const { response, payload } = await fetchJson(
+      `http://${args.hostIpv4}:${args.setupPort}/metadata`,
+      {},
+      timeoutMs,
+      1
+    )
+
+    lastPayload = payload
+    if (response.ok && payload?.status === 'ready') {
+      return payload
+    }
+    if (response.status >= 500) {
+      throw new Error(
+        `Relay metadata request failed: ${response.status} ${typeof payload === 'string' ? payload : JSON.stringify(payload ?? {})}`
+      )
+    }
+    if (attempt < attempts - 1) {
+      await sleep(delayMs)
+    }
+  }
+
+  throw new Error(
+    `Relay metadata did not become ready after ${attempts} attempts: ${
+      typeof lastPayload === 'string' ? lastPayload : JSON.stringify(lastPayload ?? {})
+    }`
+  )
 }
 
 export async function verifyUcGoPeerReachability(args) {
@@ -1602,8 +1644,21 @@ export async function deployVmAndWait(args) {
         udpPort,
         quicPort: udpPort,
         webrtcPort: udpPort,
-        proxyUrl
+        proxyUrl,
+        timeoutMs: args.configureTimeoutMs ?? 180000
       })
+
+      const metadataResult = await fetchUcGoPeerMetadata({
+        hostIpv4: runtime.hostIpv4,
+        setupPort,
+        attempts: args.metadataAttempts ?? 60,
+        delayMs: args.metadataDelayMs ?? 3000,
+        timeoutMs: args.metadataTimeoutMs ?? 180000
+      })
+      configuration = {
+        ...configuration,
+        metadata: metadataResult?.metadata ?? null
+      }
 
       if (args.verifyReachability !== false) {
         let latestVerification = null
