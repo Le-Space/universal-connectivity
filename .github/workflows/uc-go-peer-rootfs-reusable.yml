@@ -487,7 +487,7 @@ jobs:
           PY
 
           mapfile -t PROBE_ADDRS < "$RUNNER_TEMP/uc-go-peer-probe-addrs.txt"
-          npm run probe:relay -- "${PROBE_ADDRS[@]}" | tee "$RUNNER_TEMP/uc-go-peer-probe.jsonl"
+          node ./scripts/probe-relay.mjs "${PROBE_ADDRS[@]}" | tee "$RUNNER_TEMP/uc-go-peer-probe.jsonl"
 
           python3 - <<'PY'
           import json
