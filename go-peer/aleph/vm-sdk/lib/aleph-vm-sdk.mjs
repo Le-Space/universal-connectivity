@@ -959,6 +959,50 @@ async function fetchCrnExecutionMap(crnUrl, trace = null) {
   }
 }
 
+async function notifyCrnAllocation(crnUrl, itemHash, trace = null) {
+  const normalizedCrnUrl = asString(crnUrl)?.replace(/\/+$/, '')
+  if (!normalizedCrnUrl) {
+    return {
+      status: 'skipped',
+      reason: 'No CRN URL available for allocation notification.'
+    }
+  }
+
+  try {
+    const { response, payload } = await fetchJson(
+      `${normalizedCrnUrl}/control/allocation/notify`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ instance: itemHash })
+      },
+      30000,
+      3,
+      trace
+    )
+
+    if (!response.ok) {
+      return {
+        status: 'unconfirmed',
+        reason: `CRN allocation notify returned ${response.status}.`,
+        payload
+      }
+    }
+
+    return {
+      status: 'confirmed',
+      payload
+    }
+  } catch (error) {
+    return {
+      status: 'unconfirmed',
+      reason: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
 function extractProxyUrl(item, networking) {
   const candidates = [
     networking?.proxy_url,
@@ -1453,6 +1497,20 @@ export async function deployVmAndWait(args) {
       trace
     })
 
+    const crnNotify = await notifyCrnAllocation(
+      deployment.selectedCrn?.address ?? deployment.selectedCrn?.url ?? candidateCrn.address ?? null,
+      deployment.itemHash,
+      trace
+    )
+    if (crnNotify.status === 'confirmed') {
+      log('notice', `CRN allocation notify acknowledged for deployment ${deployment.itemHash}.`)
+    } else if (crnNotify.status === 'unconfirmed') {
+      log(
+        'warning',
+        `CRN allocation notify for deployment ${deployment.itemHash} could not be confirmed.${crnNotify.reason ? ` ${crnNotify.reason}` : ''}`
+      )
+    }
+
     const runtime = await waitForVmRuntime({
       itemHash: deployment.itemHash,
       crnHash: deployment.selectedCrn?.hash ?? args.crnHash,
@@ -1500,6 +1558,7 @@ export async function deployVmAndWait(args) {
         configuration: null,
         verification: null,
         portForwarding,
+        crnNotify,
         cleanup
       }
       deployment = null
