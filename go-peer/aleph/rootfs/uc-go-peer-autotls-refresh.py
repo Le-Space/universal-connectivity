@@ -20,6 +20,11 @@ WAIT_TIMEOUT_SECONDS = int(os.environ.get("AUTOTLS_WAIT_TIMEOUT_SECONDS", "900")
 WAIT_INTERVAL_SECONDS = float(os.environ.get("AUTOTLS_WAIT_INTERVAL_SECONDS", "5"))
 
 
+def uses_external_tls_frontend(proxy_hostname: str) -> bool:
+    lowered = proxy_hostname.lower().rstrip(".")
+    return lowered.endswith(".2n6.me")
+
+
 def parse_env_file(path: str) -> dict[str, str]:
     values: dict[str, str] = {}
     if not os.path.exists(path):
@@ -97,6 +102,12 @@ def wait_for_exact_hosts(ws_port: str) -> tuple[str, list[str], list[str]]:
 
 
 def render_caddyfile(proxy_hostname: str) -> str:
+    if uses_external_tls_frontend(proxy_hostname):
+        return f""":80, :443 {{
+    reverse_proxy http://127.0.0.1:{WS_BACKEND_PORT}
+}}
+"""
+
     return f"""https://{proxy_hostname} {{
     reverse_proxy http://127.0.0.1:{WS_BACKEND_PORT}
 }}
