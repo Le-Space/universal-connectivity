@@ -669,8 +669,13 @@ jobs:
             echo "vm_probe_multiaddrs_json=${vm_probe_multiaddrs_json}"
             echo "vm_browser_bootstrap_multiaddrs_json=${vm_browser_bootstrap_multiaddrs_json}"
             echo "vm_protocol_probe_ok=${vm_protocol_probe_ok}"
-            echo "vm_protocol_probe_json=${vm_protocol_probe_json}"
             echo "retention_result_json=${retention_result_json}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "vm_protocol_probe_json<<EOF"
+            printf '%s\n' "${vm_protocol_probe_json}"
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
         env:
           initial_site_url: ${{ steps.collect_rootfs_outputs.outputs.site_url }}
