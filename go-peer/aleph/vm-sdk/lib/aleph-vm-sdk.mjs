@@ -1573,7 +1573,7 @@ export async function deployVmAndWait(args) {
       const mappedPorts = runtime.mappedPorts ?? {}
       const setupPort = mappedPorts['80']?.host ?? null
       const tcpPort = mappedPorts['9095']?.host ?? null
-      const wsPort = mappedPorts['443']?.host ?? 443
+      const wsPort = tcpPort
       const udpPort = mappedPorts['9095']?.udp === true ? mappedPorts['9095']?.host ?? null : null
       const setupUrl = runtime.hostIpv4 && setupPort ? `http://${runtime.hostIpv4}:${setupPort}/health` : null
 
@@ -1600,7 +1600,7 @@ export async function deployVmAndWait(args) {
         udpPort,
         quicPort: udpPort,
         webrtcPort: udpPort,
-        proxyUrl: runtime.proxyUrl
+        proxyUrl: null
       })
 
       if (args.verifyReachability !== false) {

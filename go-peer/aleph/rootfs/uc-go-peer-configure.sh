@@ -14,8 +14,8 @@ BOOTSTRAP_SERVICE="${BOOTSTRAP_SERVICE:-uc-go-peer-bootstrap.service}"
 P2P_FORGE_DOMAIN="${P2P_FORGE_DOMAIN:-libp2p.direct}"
 PUBLIC_IPV4=""
 PUBLIC_IPV6=""
-TCP_PORT="80"
-WS_PORT="443"
+TCP_PORT="9095"
+WS_PORT="9095"
 PROXY_HOSTNAME=""
 UDP_PORT=""
 START_SERVICE=1
@@ -156,9 +156,11 @@ if [ "${START_SERVICE}" -eq 1 ]; then
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
-  systemctl enable "${AUTOTLS_REFRESH_SERVICE}"
-  systemctl restart "${AUTOTLS_REFRESH_SERVICE}"
-  if [ -z "${PROXY_HOSTNAME}" ]; then
+  if [ -n "${PROXY_HOSTNAME}" ]; then
+    systemctl enable "${AUTOTLS_REFRESH_SERVICE}"
+    systemctl restart "${AUTOTLS_REFRESH_SERVICE}"
+  else
+    systemctl stop "${AUTOTLS_REFRESH_SERVICE}" || true
     systemctl stop "${CADDY_SERVICE}" || true
   fi
   systemctl stop "${BOOTSTRAP_SERVICE}" || true

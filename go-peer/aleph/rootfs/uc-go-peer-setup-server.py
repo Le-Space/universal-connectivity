@@ -103,6 +103,8 @@ class Handler(BaseHTTPRequestHandler):
             if public_ipv6 is not None:
                 public_ipv6 = str(ipaddress.ip_address(public_ipv6))
             proxy_hostname = _validate_proxy_hostname(payload.get("proxy_url"))
+            tcp_port = payload.get("tcp_port")
+            ws_port = payload.get("ws_port")
             udp_port = payload.get("udp_port")
             quic_port = payload.get("quic_port")
             webrtc_port = payload.get("webrtc_port")
@@ -111,6 +113,10 @@ class Handler(BaseHTTPRequestHandler):
                 "--public-ipv4",
                 public_ipv4,
             ]
+            if tcp_port is not None:
+                args.extend(["--tcp-port", _validate_port(tcp_port, "tcp_port")])
+            if ws_port is not None:
+                args.extend(["--ws-port", _validate_port(ws_port, "ws_port")])
             if proxy_hostname is not None:
                 args.extend(["--proxy-hostname", proxy_hostname])
             if public_ipv6 is not None:
