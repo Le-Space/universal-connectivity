@@ -177,6 +177,12 @@ outputs:
   configuration_json:
     description: JSON response from the uc-go-peer setup endpoint
     value: ${{ steps.deploy.outputs.configuration_json }}
+  relay_peer_id:
+    description: Relay peer ID extracted from the guest after configuration
+    value: ${{ steps.deploy.outputs.relay_peer_id }}
+  probe_multiaddrs_json:
+    description: JSON array of relay multiaddrs to probe after deployment
+    value: ${{ steps.deploy.outputs.probe_multiaddrs_json }}
   verification_json:
     description: JSON object with post-configure reachability checks
     value: ${{ steps.deploy.outputs.verification_json }}

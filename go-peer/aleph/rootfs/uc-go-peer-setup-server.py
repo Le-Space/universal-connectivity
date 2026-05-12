@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 ENV_FILE = os.environ.get("ENV_FILE", "/etc/default/uc-go-peer")
 READY_FILE = os.environ.get("READY_FILE", "/etc/default/uc-go-peer.ready")
 CONFIGURE_SCRIPT = "/usr/local/sbin/uc-go-peer-configure.sh"
+DESCRIBE_SCRIPT = "/usr/local/sbin/uc-go-peer-describe.py"
 BOOTSTRAP_SERVICE = os.environ.get("BOOTSTRAP_SERVICE", "uc-go-peer-bootstrap.service")
 
 
@@ -142,7 +143,28 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        self._send_json(200, {"status": "configured", "stdout": result.stdout.strip()})
+        metadata = None
+        metadata_error = None
+        try:
+            describe = subprocess.run(
+                [DESCRIBE_SCRIPT],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            metadata = json.loads(describe.stdout.strip() or "{}")
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+            metadata_error = str(error)
+
+        self._send_json(
+            200,
+            {
+                "status": "configured",
+                "stdout": result.stdout.strip(),
+                "metadata": metadata,
+                "metadata_error": metadata_error,
+            },
+        )
         threading.Thread(target=self.server.shutdown, daemon=True).start()  # type: ignore[arg-type]
         threading.Thread(target=_stop_bootstrap_service, daemon=True).start()
 

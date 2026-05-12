@@ -76,6 +76,8 @@ async function emitDeployOutputs(deployResult) {
   const portForwardingJson = JSON.stringify(deployResult?.portForwarding ?? {})
   const configurationJson = JSON.stringify(deployResult?.configuration ?? {})
   const verificationJson = JSON.stringify(deployResult?.verification ?? {})
+  const probeMultiaddrsJson = JSON.stringify(deployResult?.configuration?.metadata?.probe_multiaddrs ?? [])
+  const relayPeerId = deployResult?.configuration?.metadata?.peer_id ?? ''
   const deploymentStatus = deployResult?.deploymentResult?.status ?? deployResult?.status ?? ''
 
   await appendOutput('deployer_address', deployResult?.sender ?? '')
@@ -94,6 +96,8 @@ async function emitDeployOutputs(deployResult) {
   await appendOutput('setup_endpoint_ok', runtime?.setupHealth?.ok ?? '')
   await appendOutput('mapped_ports_json', mappedPortsJson)
   await appendOutput('configuration_json', configurationJson)
+  await appendOutput('relay_peer_id', relayPeerId)
+  await appendOutput('probe_multiaddrs_json', probeMultiaddrsJson)
   await appendOutput('verification_json', verificationJson)
   await appendOutput('verification_ok', deployResult?.verification?.ok ?? '')
   await appendOutput('port_forwarding_json', portForwardingJson)
@@ -110,6 +114,7 @@ async function emitDeployOutputs(deployResult) {
     `- Host IPv4: \`${runtime?.hostIpv4 ?? 'unknown'}\``,
     `- IPv6: \`${runtime?.ipv6 ?? 'unknown'}\``,
     `- Web proxy URL: \`${runtime?.proxyUrl ?? 'unknown'}\``,
+    `- Relay peer ID: \`${relayPeerId || 'unknown'}\``,
     `- SSH command: \`${runtime?.sshCommand ?? 'unknown'}\``,
     `- Setup endpoint reachable before configure: \`${runtime?.setupHealth?.ok ?? 'unknown'}\``,
     `- Runtime diagnostics: \`${runtime?.diagnostics?.state ?? 'unknown'}${runtime?.diagnostics?.timedOut ? ' (timed out)' : ''}\``,

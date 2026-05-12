@@ -132,6 +132,18 @@ on:
       vm_verification_json:
         description: JSON object with the VM reachability checks
         value: ${{ jobs.build-rootfs.outputs.vm_verification_json }}
+      vm_relay_peer_id:
+        description: Relay peer ID extracted from the deployed guest
+        value: ${{ jobs.build-rootfs.outputs.vm_relay_peer_id }}
+      vm_probe_multiaddrs_json:
+        description: JSON array of relay multiaddrs probed after deployment
+        value: ${{ jobs.build-rootfs.outputs.vm_probe_multiaddrs_json }}
+      vm_protocol_probe_ok:
+        description: Whether the libp2p protocol probes passed for the deployed relay multiaddrs
+        value: ${{ jobs.build-rootfs.outputs.vm_protocol_probe_ok }}
+      vm_protocol_probe_json:
+        description: JSON lines emitted by the relay protocol probe step
+        value: ${{ jobs.build-rootfs.outputs.vm_protocol_probe_json }}
 
 permissions:
   contents: read
@@ -157,6 +169,10 @@ jobs:
       vm_mapped_ports_json: ${{ steps.export_outputs.outputs.vm_mapped_ports_json }}
       vm_verification_ok: ${{ steps.export_outputs.outputs.vm_verification_ok }}
       vm_verification_json: ${{ steps.export_outputs.outputs.vm_verification_json }}
+      vm_relay_peer_id: ${{ steps.export_outputs.outputs.vm_relay_peer_id }}
+      vm_probe_multiaddrs_json: ${{ steps.export_outputs.outputs.vm_probe_multiaddrs_json }}
+      vm_protocol_probe_ok: ${{ steps.export_outputs.outputs.vm_protocol_probe_ok }}
+      vm_protocol_probe_json: ${{ steps.export_outputs.outputs.vm_protocol_probe_json }}
 
     steps:
       - name: Checkout universal-connectivity
@@ -429,7 +445,57 @@ jobs:
           auto_configure: 'true'
           verify_reachability: 'true'
 
+      - name: Install relay probe dependencies
+        if: ${{ inputs.deploy_vm }}
+        working-directory: universal-connectivity/node-js-peer
+        run: npm ci --no-fund --no-audit
+
+      - name: Probe published relay multiaddrs
+        if: ${{ inputs.deploy_vm }}
+        id: protocol_probe
+        working-directory: universal-connectivity/node-js-peer
+        env:
+          PROBE_MULTIADDRS_JSON: ${{ steps.deploy_vm.outputs.probe_multiaddrs_json }}
+        run: |
+          if [[ -z "${PROBE_MULTIADDRS_JSON}" || "${PROBE_MULTIADDRS_JSON}" == "[]" ]]; then
+            echo "No relay probe multiaddrs were returned by the deployed guest." >&2
+            exit 1
+          fi
+
+          python3 - <<'PY' > "$RUNNER_TEMP/uc-go-peer-probe-addrs.txt"
+          import json
+          import os
+
+          addrs = json.loads(os.environ["PROBE_MULTIADDRS_JSON"])
+          for addr in addrs:
+              print(addr)
+          PY
+
+          mapfile -t PROBE_ADDRS < "$RUNNER_TEMP/uc-go-peer-probe-addrs.txt"
+          npm run probe:relay -- "${PROBE_ADDRS[@]}" | tee "$RUNNER_TEMP/uc-go-peer-probe.jsonl"
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ["RUNNER_TEMP"]) / "uc-go-peer-probe.jsonl"
+          rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+          if not rows:
+              raise SystemExit("Relay probe produced no JSON output.")
+          if any(not row.get("ok") for row in rows):
+              raise SystemExit("At least one relay protocol probe failed.")
+          PY
+
+          {
+            echo "ok=true"
+            echo "json<<EOF"
+            cat "$RUNNER_TEMP/uc-go-peer-probe.jsonl"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Export reusable workflow outputs
+        if: ${{ always() }}
         id: export_outputs
         run: |
           {
@@ -448,6 +514,10 @@ jobs:
             echo "vm_mapped_ports_json=${vm_mapped_ports_json}"
             echo "vm_verification_ok=${vm_verification_ok}"
             echo "vm_verification_json=${vm_verification_json}"
+            echo "vm_relay_peer_id=${vm_relay_peer_id}"
+            echo "vm_probe_multiaddrs_json=${vm_probe_multiaddrs_json}"
+            echo "vm_protocol_probe_ok=${vm_protocol_probe_ok}"
+            echo "vm_protocol_probe_json=${vm_protocol_probe_json}"
           } >> "$GITHUB_OUTPUT"
         env:
           vm_instance_item_hash: ${{ steps.deploy_vm.outputs.instance_item_hash }}
@@ -459,8 +529,13 @@ jobs:
           vm_mapped_ports_json: ${{ steps.deploy_vm.outputs.mapped_ports_json }}
           vm_verification_ok: ${{ steps.deploy_vm.outputs.verification_ok }}
           vm_verification_json: ${{ steps.deploy_vm.outputs.verification_json }}
+          vm_relay_peer_id: ${{ steps.deploy_vm.outputs.relay_peer_id }}
+          vm_probe_multiaddrs_json: ${{ steps.deploy_vm.outputs.probe_multiaddrs_json }}
+          vm_protocol_probe_ok: ${{ steps.protocol_probe.outputs.ok }}
+          vm_protocol_probe_json: ${{ steps.protocol_probe.outputs.json }}
 
       - name: Summarize rootfs build
+        if: ${{ always() }}
         working-directory: universal-connectivity/go-peer/aleph
         env:
           VM_VERIFICATION_JSON: ${{ steps.export_outputs.outputs.vm_verification_json }}
@@ -506,12 +581,22 @@ jobs:
               echo "- VM host IPv4: \`${{ steps.export_outputs.outputs.vm_host_ipv4 }}\`"
               echo "- VM IPv6: \`${{ steps.export_outputs.outputs.vm_ipv6 }}\`"
               echo "- VM proxy URL: \`${{ steps.export_outputs.outputs.vm_web_proxy_url }}\`"
+              echo "- VM relay peer ID: \`${{ steps.export_outputs.outputs.vm_relay_peer_id }}\`"
               echo "- VM SSH command: \`${{ steps.export_outputs.outputs.vm_ssh_command }}\`"
               echo "- VM verification ok: \`${{ steps.export_outputs.outputs.vm_verification_ok }}\`"
+              echo "- VM protocol probe ok: \`${{ steps.export_outputs.outputs.vm_protocol_probe_ok }}\`"
               echo
               echo '```json'
               printf '%s\n' "${VM_VERIFICATION_JSON}"
               echo '```'
+              if [[ -n "${{ steps.export_outputs.outputs.vm_protocol_probe_json }}" ]]; then
+                echo
+                echo "#### Relay Protocol Probe"
+                echo
+                echo '```json'
+                printf '%s\n' "${{ steps.export_outputs.outputs.vm_protocol_probe_json }}"
+                echo '```'
+              fi
             fi
             if [[ -f dist-rootfs/rootfs-manifest.json ]]; then
               echo
