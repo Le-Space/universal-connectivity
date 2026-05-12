@@ -1609,7 +1609,8 @@ export async function deployVmAndWait(args) {
           latestVerification = await verifyUcGoPeerReachability({
             hostIpv4: runtime.hostIpv4,
             mappedPorts,
-            proxyUrl: runtime.proxyUrl,
+            proxyUrl: null,
+            skipInternalPorts: ['80', '443'],
             tcpTimeoutMs: args.tcpTimeoutMs,
             httpTimeoutMs: args.httpTimeoutMs
           })
