@@ -163,7 +163,6 @@ if [ "${START_SERVICE}" -eq 1 ]; then
     systemctl stop "${AUTOTLS_REFRESH_SERVICE}" || true
     systemctl stop "${CADDY_SERVICE}" || true
   fi
-  systemctl stop "${BOOTSTRAP_SERVICE}" || true
 fi
 
 printf 'Configured LIBP2P_ANNOUNCE_ADDRS=%s\n' "${announce_value}"
