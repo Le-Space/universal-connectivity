@@ -76,6 +76,11 @@ on:
         required: false
         default: '5'
         type: string
+      vm_enable_caddy_proxy:
+        description: Enable the proxy/Caddy path so uc-go-peer also advertises secure WSS via the Aleph web proxy hostname
+        required: false
+        default: false
+        type: boolean
     secrets:
       ALEPH_PRIVATE_KEY:
         required: false
@@ -420,6 +425,7 @@ jobs:
           preferred_country_code: ${{ inputs.vm_preferred_country_code }}
           geo_crn_limit: ${{ inputs.vm_geo_crn_limit }}
           max_crn_attempts: ${{ inputs.vm_max_crn_attempts }}
+          enable_caddy_proxy: ${{ inputs.vm_enable_caddy_proxy && 'true' || 'false' }}
           auto_configure: 'true'
           verify_reachability: 'true'
 
@@ -468,6 +474,7 @@ jobs:
             echo "- Derived version: \`${ROOTFS_VERSION}\`"
             echo "- Publish to Aleph: \`${{ inputs.publish }}\`"
             echo "- Deploy VM after publish: \`${{ inputs.deploy_vm }}\`"
+            echo "- Enable proxy-backed Caddy/WSS: \`${{ inputs.vm_enable_caddy_proxy }}\`"
             echo "- Main service: \`${ROOTFS_SERVICE_MAIN}\`"
             echo "- Bootstrap service: \`${ROOTFS_SERVICE_BOOTSTRAP}\`"
             echo "- Manifest copy target: \`${ROOTFS_MANIFEST_COPY_TARGET}\`"

@@ -60,6 +60,11 @@ on:
         required: false
         default: '5'
         type: string
+      vm_enable_caddy_proxy:
+        description: Also configure the Aleph web proxy hostname and guest Caddy for secure WSS on 443
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -86,6 +91,7 @@ jobs:
       vm_preferred_country_code: ${{ inputs.vm_preferred_country_code || 'DE' }}
       vm_geo_crn_limit: ${{ inputs.vm_geo_crn_limit || '30' }}
       vm_max_crn_attempts: ${{ inputs.vm_max_crn_attempts || '5' }}
+      vm_enable_caddy_proxy: ${{ inputs.vm_enable_caddy_proxy }}
     secrets:
       ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
       VM_SSH_PUBLIC_KEY: ${{ secrets.VM_SSH_PUBLIC_KEY }}

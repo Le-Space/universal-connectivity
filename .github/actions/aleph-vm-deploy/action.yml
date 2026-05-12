@@ -114,6 +114,10 @@ inputs:
     description: Maximum number of distinct CRNs to try when Aleph rejects a deployment
     required: false
     default: '5'
+  enable_caddy_proxy:
+    description: Configure the guest with the Aleph web proxy hostname and enable Caddy-backed secure WSS
+    required: false
+    default: 'false'
   auto_configure:
     description: Configure the uc-go-peer guest over the temporary setup endpoint after deployment
     required: false
@@ -239,6 +243,7 @@ runs:
         ALEPH_VM_PREFERRED_COUNTRY_CODE: ${{ inputs.preferred_country_code }}
         ALEPH_VM_GEO_CRN_LIMIT: ${{ inputs.geo_crn_limit }}
         ALEPH_VM_MAX_CRN_ATTEMPTS: ${{ inputs.max_crn_attempts }}
+        ALEPH_VM_ENABLE_CADDY_PROXY: ${{ inputs.enable_caddy_proxy }}
         ALEPH_VM_AUTO_CONFIGURE: ${{ inputs.auto_configure }}
         ALEPH_VM_VERIFY_REACHABILITY: ${{ inputs.verify_reachability }}
         ALEPH_VM_REQUIRED_PORTS_JSON: ${{ inputs.required_ports_json }}

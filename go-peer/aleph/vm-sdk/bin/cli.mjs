@@ -180,6 +180,7 @@ async function main() {
     preferredCountryCode: optional('ALEPH_VM_PREFERRED_COUNTRY_CODE', 'DE'),
     geoCrnLimit: asInteger('ALEPH_VM_GEO_CRN_LIMIT', 30),
     maxCrnAttempts: asInteger('ALEPH_VM_MAX_CRN_ATTEMPTS', 5),
+    enableCaddyProxy: asBoolean('ALEPH_VM_ENABLE_CADDY_PROXY', false),
     autoConfigure: asBoolean('ALEPH_VM_AUTO_CONFIGURE', true),
     verifyReachability: asBoolean('ALEPH_VM_VERIFY_REACHABILITY', true),
     requiredPorts: asJson('ALEPH_VM_REQUIRED_PORTS_JSON', JSON.stringify(defaultRequiredPorts())),

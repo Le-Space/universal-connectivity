@@ -1570,11 +1570,13 @@ export async function deployVmAndWait(args) {
     let verification = null
 
     if (runtime && args.autoConfigure !== false) {
+      const enableCaddyProxy = args.enableCaddyProxy === true
       const mappedPorts = runtime.mappedPorts ?? {}
       const setupPort = mappedPorts['80']?.host ?? null
       const tcpPort = mappedPorts['9095']?.host ?? null
-      const wsPort = tcpPort
+      const wsPort = enableCaddyProxy ? mappedPorts['443']?.host ?? 443 : tcpPort
       const udpPort = mappedPorts['9095']?.udp === true ? mappedPorts['9095']?.host ?? null : null
+      const proxyUrl = enableCaddyProxy ? runtime.proxyUrl ?? null : null
       const setupUrl = runtime.hostIpv4 && setupPort ? `http://${runtime.hostIpv4}:${setupPort}/health` : null
 
       let setupHealth = null
@@ -1600,7 +1602,7 @@ export async function deployVmAndWait(args) {
         udpPort,
         quicPort: udpPort,
         webrtcPort: udpPort,
-        proxyUrl: null
+        proxyUrl
       })
 
       if (args.verifyReachability !== false) {
@@ -1609,8 +1611,8 @@ export async function deployVmAndWait(args) {
           latestVerification = await verifyUcGoPeerReachability({
             hostIpv4: runtime.hostIpv4,
             mappedPorts,
-            proxyUrl: null,
-            skipInternalPorts: ['80', '443'],
+            proxyUrl,
+            skipInternalPorts: enableCaddyProxy ? ['80'] : ['80', '443'],
             tcpTimeoutMs: args.tcpTimeoutMs,
             httpTimeoutMs: args.httpTimeoutMs
           })
