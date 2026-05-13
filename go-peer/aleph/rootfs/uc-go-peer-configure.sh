@@ -10,12 +10,14 @@ AUTOTLS_CADDY_READY_FILE="${AUTOTLS_CADDY_READY_FILE:-/etc/default/uc-go-peer.ca
 SERVICE_NAME="${SERVICE_NAME:-uc-go-peer.service}"
 AUTOTLS_REFRESH_SERVICE="${AUTOTLS_REFRESH_SERVICE:-uc-go-peer-autotls-refresh.service}"
 CADDY_SERVICE="${CADDY_SERVICE:-caddy.service}"
+CADDYFILE="${CADDYFILE:-/etc/caddy/Caddyfile}"
 BOOTSTRAP_SERVICE="${BOOTSTRAP_SERVICE:-uc-go-peer-bootstrap.service}"
 P2P_FORGE_DOMAIN="${P2P_FORGE_DOMAIN:-libp2p.direct}"
 PUBLIC_IPV4=""
 PUBLIC_IPV6=""
 TCP_PORT="9095"
 WS_PORT="9095"
+WS_BACKEND_PORT="9095"
 PROXY_HOSTNAME=""
 UDP_PORT=""
 START_SERVICE=1
@@ -46,6 +48,24 @@ write_env_var() {
   else
     printf '%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
   fi
+}
+
+render_proxy_caddyfile() {
+  local proxy_hostname="$1"
+  cat <<EOF
+{
+    auto_https disable_redirects
+}
+
+https://${proxy_hostname} {
+    tls {
+        issuer acme {
+            disable_http_challenge
+        }
+    }
+    reverse_proxy http://127.0.0.1:${WS_BACKEND_PORT}
+}
+EOF
 }
 
 while [ "$#" -gt 0 ]; do
@@ -142,8 +162,12 @@ write_env_var "EXTERNAL_RELAY_TCP_PORT" "${TCP_PORT}"
 write_env_var "EXTERNAL_RELAY_WS_PORT" "${WS_PORT}"
 if [ -n "${PROXY_HOSTNAME}" ]; then
   write_env_var "PROXY_HOSTNAME" "${PROXY_HOSTNAME}"
+  mkdir -p "$(dirname "${CADDYFILE}")"
+  render_proxy_caddyfile "${PROXY_HOSTNAME}" > "${CADDYFILE}"
+  touch "${AUTOTLS_CADDY_READY_FILE}"
 else
   write_env_var "PROXY_HOSTNAME" ""
+  rm -f "${AUTOTLS_CADDY_READY_FILE}"
 fi
 if [ -n "${UDP_PORT}" ]; then
   write_env_var "EXTERNAL_RELAY_UDP_PORT" "${UDP_PORT}"
@@ -159,7 +183,10 @@ if [ "${START_SERVICE}" -eq 1 ]; then
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
   systemctl enable "${AUTOTLS_REFRESH_SERVICE}"
-  if [ -z "${PROXY_HOSTNAME}" ]; then
+  if [ -n "${PROXY_HOSTNAME}" ]; then
+    systemctl enable "${CADDY_SERVICE}"
+    systemctl restart "${CADDY_SERVICE}"
+  else
     systemctl stop "${CADDY_SERVICE}" || true
   fi
   systemctl restart --no-block "${AUTOTLS_REFRESH_SERVICE}"

@@ -11,18 +11,9 @@ READY_FILE = os.environ.get("READY_FILE", "/etc/default/uc-go-peer.ready")
 AUTOTLS_READY_FILE = os.environ.get("AUTOTLS_READY_FILE", "/etc/default/uc-go-peer.autotls-ready")
 AUTOTLS_ZONE_FILE = os.environ.get("AUTOTLS_ZONE_FILE", "/etc/default/uc-go-peer.autotls-zone")
 AUTOTLS_HOSTS_FILE = os.environ.get("AUTOTLS_HOSTS_FILE", "/etc/default/uc-go-peer.autotls-hosts")
-AUTOTLS_CADDY_READY_FILE = os.environ.get("AUTOTLS_CADDY_READY_FILE", "/etc/default/uc-go-peer.caddy-ready")
 SERVICE_NAME = os.environ.get("SERVICE_NAME", "uc-go-peer.service")
-CADDY_SERVICE = os.environ.get("CADDY_SERVICE", "caddy.service")
-CADDYFILE = os.environ.get("CADDYFILE", "/etc/caddy/Caddyfile")
-WS_BACKEND_PORT = os.environ.get("WS_BACKEND_PORT", "9095").strip()
 WAIT_TIMEOUT_SECONDS = int(os.environ.get("AUTOTLS_WAIT_TIMEOUT_SECONDS", "900"))
 WAIT_INTERVAL_SECONDS = float(os.environ.get("AUTOTLS_WAIT_INTERVAL_SECONDS", "5"))
-
-
-def uses_external_tls_frontend(proxy_hostname: str) -> bool:
-    lowered = proxy_hostname.lower().rstrip(".")
-    return lowered.endswith(".2n6.me")
 
 
 def parse_env_file(path: str) -> dict[str, str]:
@@ -101,32 +92,6 @@ def wait_for_exact_hosts(ws_port: str) -> tuple[str, list[str], list[str]]:
     raise RuntimeError(last_error)
 
 
-def render_caddyfile(proxy_hostname: str) -> str:
-    if uses_external_tls_frontend(proxy_hostname):
-        return f"""{{ 
-    auto_https off
-}}
-
-:443 {{
-    reverse_proxy http://127.0.0.1:{WS_BACKEND_PORT}
-}}
-"""
-
-    return f"""https://{proxy_hostname} {{
-    reverse_proxy http://127.0.0.1:{WS_BACKEND_PORT}
-}}
-"""
-
-
-def configure_proxy_caddy(proxy_hostname: str) -> None:
-    os.makedirs(os.path.dirname(CADDYFILE), exist_ok=True)
-    with open(CADDYFILE, "w", encoding="utf-8") as handle:
-        handle.write(render_caddyfile(proxy_hostname))
-    open(AUTOTLS_CADDY_READY_FILE, "a", encoding="utf-8").close()
-    subprocess.run(["systemctl", "enable", CADDY_SERVICE], check=True)
-    subprocess.run(["systemctl", "restart", CADDY_SERVICE], check=True)
-
-
 def main() -> None:
     if not os.path.exists(READY_FILE):
         raise SystemExit(f"missing ready file: {READY_FILE}")
@@ -137,8 +102,6 @@ def main() -> None:
         raise RuntimeError("missing GO_PEER_TCP_PORT in environment file")
 
     proxy_hostname = env_values.get("PROXY_HOSTNAME", "").strip()
-    if proxy_hostname:
-        configure_proxy_caddy(proxy_hostname)
 
     zone, exact_hosts, exact_logged_addrs = wait_for_exact_hosts(ws_port)
     if not exact_hosts:
@@ -169,10 +132,6 @@ def main() -> None:
     if env_values.get("LIBP2P_ANNOUNCE_ADDRS", "") != announce_value:
         subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
         service_restarted = True
-
-    if not proxy_hostname:
-        if os.path.exists(AUTOTLS_CADDY_READY_FILE):
-            os.remove(AUTOTLS_CADDY_READY_FILE)
 
     open(AUTOTLS_READY_FILE, "a", encoding="utf-8").close()
     print(f"Updated LIBP2P_ANNOUNCE_ADDRS={announce_value}")
