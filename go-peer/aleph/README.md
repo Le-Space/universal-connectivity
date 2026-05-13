@@ -35,21 +35,28 @@ builder.
 flowchart TD
     A[universal-connectivity repo] --> B[go-peer application source]
     A --> C[go-peer/aleph packaging]
+    A --> D[js-peer website app]
+    A --> E[node-js-peer probe tooling]
 
-    C --> D[root-profiles/uc-go-peer.json]
-    C --> E[rootfs/build-rootfs.sh]
-    C --> F[rootfs/build-rootfs-image.sh]
-    C --> G[rootfs/guest bootstrap + systemd files]
+    C --> F[root-profiles/uc-go-peer.json]
+    C --> G[rootfs/build-rootfs.sh]
+    C --> H[rootfs/build-rootfs-image.sh]
+    C --> I[rootfs guest bootstrap + setup + describe scripts]
+    C --> J[vm-sdk deploy helper]
 
-    H[build-aleph-go-peer-rootfs.yml] --> D
-    H --> E
-    E --> F
-    F --> G
-    F --> I[aleph-uc-go-peer.qcow2]
-    E --> J[rootfs-manifest.json]
+    K[build-aleph-go-peer-rootfs.yml] --> F
+    K --> G
+    K --> D
+    K --> E
+    G --> H
+    H --> I
+    H --> L[aleph-uc-go-peer.qcow2]
+    G --> M[rootfs-manifest.json]
+    J --> N[deployed VM metadata and probe multiaddrs]
+    D --> O[published js-peer site]
 ```
 
-### 2. Go Relay Rootfs Creation And Aleph Publish
+### 2. Workflow End-To-End: Rootfs, VM, Probe, And Site Republish
 
 ```mermaid
 flowchart TD
@@ -58,32 +65,40 @@ flowchart TD
     C --> D[Export contract-derived env<br/>ROOTFS_PROFILE<br/>ROOTFS_INSTALL_MODE<br/>ROOTFS_CONTRACT_FILE]
     D --> E[Install build dependencies<br/>libguestfs/qemu/docker/python]
     E --> F{publish=true?}
-    F -- no --> G[Skip Aleph client/account setup]
-    F -- yes --> H[Install aleph-client]
+    F -- no --> G[Skip Aleph account and site publish]
+    F -- yes --> H[Install aleph-client and js-peer publish helpers]
     H --> I[Write ~/.aleph-im/config.json<br/>and ~/.aleph-im/private-keys/aleph-vm.key]
     G --> J[Run go-peer/aleph/rootfs/build-rootfs.sh]
     I --> J
-    J --> K[Load contract with read-rootfs-contract.py]
-    K --> L[Validate uc-go-peer<br/>and prebaked mode]
-    L --> M{Builder driver}
-    M -->|CI| N[Prefer Dockerized Debian/libguestfs builder]
-    M -->|local Linux| O[Use host virt-customize path]
-    N --> P[Run build-rootfs-image.sh]
-    O --> P
-    P --> Q[Download Debian cloud image]
-    Q --> R[Resize qcow2]
-    R --> S[Build universal-chat-go outside the guest]
-    S --> T[virt-customize copies binary + scripts/services<br/>and runs bootstrap base/build/finalize]
-    T --> U[Emit aleph-uc-go-peer.qcow2]
-    U --> V{publish=true?}
-    V -- no --> W[Write local rootfs-manifest.json]
-    V -- yes --> X[Upload qcow2 to Aleph IPFS add endpoint]
-    X --> Y[Extract CID]
-    Y --> Z[aleph file pin CID]
-    Z --> AA[Extract rootfs item hash]
-    AA --> AB[Write rootfs-manifest.json<br/>including rootfsItemHash]
-    W --> AC[Upload workflow artifacts<br/>qcow2/manifest/json logs]
-    AB --> AC
+    J --> K[Emit qcow2 and dist-rootfs/rootfs-manifest.json]
+    K --> L{publish=true?}
+    L -- no --> M[Upload qcow2 and manifest as workflow artifacts]
+    L -- yes --> N[Upload qcow2 to Aleph IPFS add endpoint]
+    N --> O[Wait for CID gateway availability]
+    O --> P[aleph file pin CID]
+    P --> Q[Wait for rootfs STORE message processed]
+    Q --> R[Copy rootfs manifest into js-peer/public/rootfs/uc-go-peer]
+    R --> S[Build js-peer with latest rootfs manifest only]
+    S --> T[Upload js-peer site to IPFS and pin on Aleph]
+    T --> U{deploy_vm=true?}
+    U -- no --> V[Export site URL and manifest URLs]
+    U -- yes --> W[Deploy uc-go-peer VM from rootfs item hash]
+    W --> X[Create Aleph port forwards and notify CRN]
+    X --> Y[Call guest /configure on mapped port for internal 80]
+    Y --> Z[Collect guest metadata:<br/>peer ID, probe multiaddrs, browser bootstrap multiaddrs]
+    Z --> ZA[Run node-js-peer protocol probes against returned multiaddrs]
+    ZA --> ZB{browser bootstrap multiaddrs returned?}
+    ZB -- no --> ZC[Keep initial js-peer publish]
+    ZB -- yes --> ZD[Rebuild js-peer with NEXT_PUBLIC_RELAY_LISTEN_ADDRS env override]
+    ZD --> ZE[Republish js-peer site to IPFS and pin on Aleph]
+    ZE --> ZF{main branch with custom domain?}
+    ZF -- no --> ZG[Export final site URL and manifest URLs]
+    ZF -- yes --> ZH[Relink custom domain to republished js-peer site]
+    V --> ZI[Workflow summary and outputs]
+    ZC --> ZI
+    ZG --> ZI
+    ZH --> ZI
+    M --> ZI
 ```
 
 ### 3. What Happens Inside `go-peer/aleph/rootfs`
@@ -127,11 +142,12 @@ flowchart TD
     ZB -- no --> ZD[upload_image]
     ZD --> ZE[curl POST file to ipfs.aleph.cloud/api/v0/add]
     ZE --> ZF[Parse CID from ipfs-add-response.jsonl]
-    ZF --> ZG[Run aleph file pin CID]
-    ZG --> ZH[Parse item_hash from store-message.json]
-    ZH --> ZI[write_manifest]
-    ZC --> ZJ[rootfs-manifest.json<br/>profile/version/ports/notes]
-    ZI --> ZJ[rootfs-manifest.json<br/>profile/version/ports/notes/item hash]
+    ZF --> ZG[Wait until CID is retrievable from Aleph IPFS gateway]
+    ZG --> ZH[Run aleph file pin CID]
+    ZH --> ZI[Wait for STORE message processed]
+    ZI --> ZJ[Parse item_hash from store-message.json]
+    ZC --> ZK[rootfs-manifest.json<br/>profile/version/ports/notes]
+    ZJ --> ZK[rootfs-manifest.json<br/>profile/version/ports/notes/item hash]
 ```
 
 ### 4. Runtime Behavior Inside The VM
@@ -140,21 +156,46 @@ flowchart TD
 flowchart TD
     A[First boot of Aleph VM] --> B{Ready file exists?}
     B -- no --> C[uc-go-peer-bootstrap.service exposes setup API on port 80]
-    C --> D[Deployment calls /configure with public IPs and mapped ports]
+    C --> D[Deployment calls /configure with public IPs, mapped ports, and optional proxy URL]
     D --> E[uc-go-peer-configure.sh writes /etc/default/uc-go-peer]
     E --> F[Enable + restart uc-go-peer.service]
-    F --> G[Enable + restart uc-go-peer-autotls-refresh.service]
-    G --> H[Stop temporary bootstrap service]
+    F --> G{Proxy hostname requested?}
+    G -- no --> H[Skip caddy-ready flag and keep direct forwarded ports as primary path]
+    G -- yes --> I[Enable + restart uc-go-peer-autotls-refresh.service]
+    I --> J[AutoTLS refresh optionally writes Caddyfile and caddy-ready flag]
+    H --> K[Setup server replies with guest metadata JSON]
+    J --> K
+    K --> L[Setup server stops bootstrap service after response]
 
     B -- yes --> F
 
-    F --> I[universal-chat-go starts with TCP/WSS/QUIC/WebTransport/WebRTC ports]
-    I --> J[AutoTLS secure websocket hostnames appear in logs]
-    J --> K[uc-go-peer-autotls-refresh.py rewrites LIBP2P_ANNOUNCE_ADDRS]
-    K --> L{Proxy hostname configured?}
-    L -- no --> M[Keep direct announce addrs only]
-    L -- yes --> N[Write Caddyfile for HTTPS/WSS proxy]
-    N --> O[Restart caddy.service]
+    F --> M[universal-chat-go starts on internal port 9095]
+    M --> N[Logs emit peer ID and listening multiaddrs]
+    N --> O[uc-go-peer-describe.py extracts peer ID, direct TCP, AutoTLS WSS, and proxy WSS addrs]
+    O --> P[Workflow probes returned multiaddrs]
+```
+
+### 5. How `js-peer` Gets Its Relay Bootstrap Addresses
+
+```mermaid
+flowchart TD
+    A[js-peer build starts] --> B{NEXT_PUBLIC_RELAY_LISTEN_ADDRS set in build env?}
+    B -- yes --> C[Use explicit secure websocket relay multiaddrs from workflow]
+    B -- no --> D[Use NEXT_PUBLIC_BOOTSTRAP_PEER_IDS or built-in BOOTSTRAP_PEER_IDS]
+    D --> E[Query delegated routing for peer records]
+    E --> F[Filter browser-dialable addrs:<br/>tls/ws or webtransport]
+    F --> G[Append /p2p/peerId]
+    C --> H[Ship compiled site with resolved relay bootstrap list]
+    G --> H
+
+    I[Workflow first publish] --> J[js-peer/public/rootfs/uc-go-peer/latest.json]
+    I --> K[js-peer/public/rootfs/uc-go-peer/${ROOTFS_VERSION}.json]
+    J --> H
+    K --> H
+
+    L[Workflow second publish after VM deploy] --> M[Guest returns browser_bootstrap_multiaddrs_json]
+    M --> N[Workflow sets NEXT_PUBLIC_RELAY_LISTEN_ADDRS only for rebuild]
+    N --> H
 ```
 
 ## File Ownership Guide
@@ -177,8 +218,12 @@ flowchart TD
   Temporary HTTP setup endpoint that accepts Aleph port-mapping information.
 - `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-autotls-refresh.py`
   AutoTLS hostname extraction and announce-address normalization after startup.
+- `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-describe.py`
+  Guest-side metadata extractor used after configuration to report the relay peer ID and probe/bootstrap multiaddrs.
 - `universal-connectivity/.github/workflows/build-aleph-go-peer-rootfs.yml`
   CI entrypoint for building and optionally publishing the Aleph rootfs image.
+- `universal-connectivity/.github/workflows/uc-go-peer-rootfs-reusable.yml`
+  Main reusable workflow that builds the rootfs, publishes manifests, optionally deploys the VM, runs protocol probes, and republishes `js-peer` with deployed relay addresses.
 
 ## Headless VM Deploy SDK
 
@@ -253,3 +298,11 @@ it now performs a two-pass `js-peer` publish:
 
 This keeps the live website bootstrap list aligned with the relay that was just
 deployed instead of leaving the site pointed at stale bootstrap addresses.
+
+One important implementation detail:
+
+- the workflow does not edit a checked-in `.env` file in the repository
+- instead, the second `js-peer` build injects `NEXT_PUBLIC_RELAY_LISTEN_ADDRS`
+  as a build-time environment variable
+- `js-peer/src/lib/libp2p.ts` prefers that variable over delegated-routing
+  bootstrap discovery when it is present
