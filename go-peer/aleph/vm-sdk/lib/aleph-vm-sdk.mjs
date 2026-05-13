@@ -1584,7 +1584,7 @@ export async function verifyUcGoPeerReachability(args) {
     }
   }
 
-  if (args.proxyUrl) {
+  if (args.proxyUrl && args.verifyProxyHttp !== false) {
     checks['https:proxy'] = await httpProbe(args.proxyUrl, Number(args.httpTimeoutMs ?? 10000))
   }
   const proxyHostname = args.proxyHostname ?? (args.proxyUrl ? proxyHostnameFromUrl(args.proxyUrl) : null)
@@ -1820,6 +1820,7 @@ export async function deployVmAndWait(args) {
             hostIpv4: runtime.hostIpv4,
             mappedPorts,
             proxyUrl,
+            verifyProxyHttp: enableCaddyProxy ? false : args.verifyProxyHttp,
             skipInternalPorts: enableCaddyProxy ? ['80'] : ['80', '443'],
             tcpTimeoutMs: args.tcpTimeoutMs,
             httpTimeoutMs: args.httpTimeoutMs
