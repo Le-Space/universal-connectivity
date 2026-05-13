@@ -14,7 +14,7 @@ Environment=AUTOTLS_ZONE_FILE=/etc/default/uc-go-peer.autotls-zone
 Environment=AUTOTLS_HOSTS_FILE=/etc/default/uc-go-peer.autotls-hosts
 Environment=AUTOTLS_CADDY_READY_FILE=/etc/default/uc-go-peer.caddy-ready
 Environment=SERVICE_NAME=uc-go-peer.service
-Environment=WS_BACKEND_PORT=9095
+Environment=WS_BACKEND_PORT=9096
 ExecStart=/usr/bin/python3 /usr/local/sbin/uc-go-peer-autotls-refresh.py
 StandardOutput=journal
 StandardError=journal

@@ -38,6 +38,12 @@
       "purpose": "Caddy HTTPS and WSS proxy"
     },
     {
+      "port": 9096,
+      "tcp": true,
+      "udp": false,
+      "purpose": "libp2p secure websocket listener"
+    },
+    {
       "port": 9095,
       "tcp": true,
       "udp": true,
@@ -46,6 +52,6 @@
   ],
   "manifest": {
     "copyTarget": "js-peer/public/rootfs/uc-go-peer/latest.json",
-    "notes": "The go-peer image keeps the relay on internal port 9095, advertises the actual Aleph host port mappings for direct TCP and UDP transports after deployment, and can optionally add a proxy-backed secure WebSocket address on port 443 via Caddy."
+    "notes": "The go-peer image keeps the raw relay on internal port 9095, uses a dedicated internal secure websocket listener on 9096, advertises the actual Aleph host port mappings for direct TCP/UDP and AutoTLS websocket transports after deployment, and can optionally add a proxy-backed secure WebSocket address on port 443 via Caddy."
   }
 }
