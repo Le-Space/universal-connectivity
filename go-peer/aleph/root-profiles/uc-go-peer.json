@@ -40,30 +40,12 @@
     {
       "port": 9095,
       "tcp": true,
-      "udp": false,
-      "purpose": "libp2p TCP"
-    },
-    {
-      "port": 9096,
-      "tcp": true,
-      "udp": false,
-      "purpose": "libp2p WSS"
-    },
-    {
-      "port": 9097,
-      "tcp": false,
       "udp": true,
-      "purpose": "QUIC and WebTransport"
-    },
-    {
-      "port": 9098,
-      "tcp": false,
-      "udp": true,
-      "purpose": "WebRTC direct"
+      "purpose": "libp2p raw TCP and UDP transports"
     }
   ],
   "manifest": {
     "copyTarget": "js-peer/public/rootfs/uc-go-peer/latest.json",
-    "notes": "The go-peer image configures explicit external announce multiaddrs after deployment so libp2p TCP, WSS, QUIC, and WebRTC addresses use the actual Aleph host port mappings."
+    "notes": "The go-peer image keeps the relay on internal port 9095, advertises the actual Aleph host port mappings for direct TCP and UDP transports after deployment, and can optionally add a proxy-backed secure WebSocket address on port 443 via Caddy."
   }
 }

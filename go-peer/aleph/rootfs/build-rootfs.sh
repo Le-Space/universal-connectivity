@@ -14,6 +14,14 @@ CHANNEL="${CHANNEL:-ALEPH-CLOUDSOLUTIONS}"
 SKIP_UPLOAD="${SKIP_UPLOAD:-0}"
 SKIP_BUILD="${SKIP_BUILD:-0}"
 IPFS_ADD_URL="${IPFS_ADD_URL:-https://ipfs.aleph.cloud/api/v0/add}"
+IPFS_GATEWAY_URL="${IPFS_GATEWAY_URL:-https://ipfs.aleph.cloud/ipfs}"
+ALEPH_API_HOST="${ALEPH_API_HOST:-https://api2.aleph.im}"
+ALEPH_MESSAGE_WAIT_ATTEMPTS="${ALEPH_MESSAGE_WAIT_ATTEMPTS:-60}"
+ALEPH_MESSAGE_WAIT_DELAY_SECONDS="${ALEPH_MESSAGE_WAIT_DELAY_SECONDS:-5}"
+ALEPH_PIN_ATTEMPTS="${ALEPH_PIN_ATTEMPTS:-4}"
+ALEPH_PIN_DELAY_SECONDS="${ALEPH_PIN_DELAY_SECONDS:-10}"
+IPFS_GATEWAY_WAIT_ATTEMPTS="${IPFS_GATEWAY_WAIT_ATTEMPTS:-30}"
+IPFS_GATEWAY_WAIT_DELAY_SECONDS="${IPFS_GATEWAY_WAIT_DELAY_SECONDS:-10}"
 ROOTFS_CID=""
 ROOTFS_ITEM_HASH=""
 
@@ -195,6 +203,138 @@ PY
   sync_manifest_copy_target
 }
 
+wait_for_aleph_message_processed() {
+  require python3
+  require curl
+
+  local item_hash="${1:?missing item hash}"
+  local attempts="${2:-${ALEPH_MESSAGE_WAIT_ATTEMPTS}}"
+  local delay_seconds="${3:-${ALEPH_MESSAGE_WAIT_DELAY_SECONDS}}"
+  local api_host="${4:-${ALEPH_API_HOST}}"
+  local response_file
+  response_file="$(mktemp)"
+
+  local attempt
+  for attempt in $(seq 1 "${attempts}"); do
+    if ! curl --fail --silent --show-error \
+      "${api_host}/api/v0/messages/${item_hash}" \
+      > "${response_file}"; then
+      rm -f "${response_file}"
+      die "Failed to query Aleph message status for ${item_hash}"
+    fi
+
+    local status
+    status="$(python3 - "${response_file}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+status = payload.get("status")
+print(status or "")
+PY
+)"
+
+    case "${status}" in
+      processed)
+        rm -f "${response_file}"
+        return 0
+        ;;
+      rejected)
+        local rejection_summary
+        rejection_summary="$(python3 - "${response_file}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+payload = json.loads(Path(sys.argv[1]).read_text())
+error_code = payload.get("error_code")
+details = payload.get("details")
+first_error = details.get("errors", [None])[0] if isinstance(details, dict) else None
+if error_code == 5 and isinstance(first_error, dict):
+    account_balance = first_error.get("account_balance")
+    required_balance = first_error.get("required_balance")
+    if account_balance is not None and required_balance is not None:
+        print(f"insufficient Aleph balance: account has {account_balance}, required is {required_balance}")
+        raise SystemExit(0)
+if error_code is None:
+    print(json.dumps(details or {}))
+else:
+    print(f"error {error_code}: {json.dumps(details or {})}")
+PY
+)"
+        rm -f "${response_file}"
+        die "Aleph STORE message ${item_hash} was rejected: ${rejection_summary}"
+        ;;
+      "")
+        ;;
+      *)
+        ;;
+    esac
+
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      sleep "${delay_seconds}"
+    fi
+  done
+
+  rm -f "${response_file}"
+  die "Aleph STORE message ${item_hash} did not become processed after ${attempts} attempts."
+}
+
+wait_for_ipfs_cid_available() {
+  require curl
+
+  local cid="${1:?missing cid}"
+  local attempts="${2:-${IPFS_GATEWAY_WAIT_ATTEMPTS}}"
+  local delay_seconds="${3:-${IPFS_GATEWAY_WAIT_DELAY_SECONDS}}"
+  local gateway_base="${4:-${IPFS_GATEWAY_URL}}"
+  local gateway_url="${gateway_base%/}/${cid}"
+  local headers_file
+  headers_file="$(mktemp)"
+
+  local attempt
+  for attempt in $(seq 1 "${attempts}"); do
+    : > "${headers_file}"
+    if curl --silent --show-error --location \
+      --range 0-0 \
+      --dump-header "${headers_file}" \
+      --output /dev/null \
+      "${gateway_url}"; then
+      local http_status
+      http_status="$(python3 - "${headers_file}" <<'PY'
+import sys
+from pathlib import Path
+
+status_lines = []
+for line in Path(sys.argv[1]).read_text(errors="replace").splitlines():
+    if line.startswith("HTTP/"):
+        status_lines.append(line)
+
+if not status_lines:
+    print("")
+else:
+    print(status_lines[-1].split()[1])
+PY
+)"
+
+      case "${http_status}" in
+        200|206)
+          rm -f "${headers_file}"
+          return 0
+          ;;
+      esac
+    fi
+
+    if [ "${attempt}" -lt "${attempts}" ]; then
+      echo "CID ${cid} is not retrievable from ${gateway_base} yet (attempt ${attempt}/${attempts}); retrying in ${delay_seconds}s..." >&2
+      sleep "${delay_seconds}"
+    fi
+  done
+
+  rm -f "${headers_file}"
+  die "CID ${cid} did not become retrievable from ${gateway_base} after ${attempts} attempts."
+}
+
 upload_image() {
   local aleph_bin
   aleph_bin="$(resolve_aleph_bin)"
@@ -233,15 +373,57 @@ print(cid)
 PY
 )" || die "Failed to extract CID from ${OUT_DIR}/ipfs-add-response.jsonl"
 
+  echo "Waiting for CID ${ROOTFS_CID} to become retrievable via ${IPFS_GATEWAY_URL}..."
+  wait_for_ipfs_cid_available "${ROOTFS_CID}"
+
   echo "Pinning CID ${ROOTFS_CID} on Aleph Cloud..."
-  : > "${OUT_DIR}/store-message.json"
-  if ! "${aleph_bin}" file pin "${ROOTFS_CID}" \
-    --channel "${CHANNEL}" \
-    > "${OUT_DIR}/store-message.json"; then
-    die "Aleph pin failed for CID ${ROOTFS_CID}"
+  local attempt
+  local stderr_log="${OUT_DIR}/store-message.stderr.log"
+  local stdout_log="${OUT_DIR}/store-message.json"
+  local last_error_summary=""
+
+  for attempt in $(seq 1 "${ALEPH_PIN_ATTEMPTS}"); do
+    : > "${stdout_log}"
+    : > "${stderr_log}"
+
+    echo "Aleph pin attempt ${attempt}/${ALEPH_PIN_ATTEMPTS} for CID ${ROOTFS_CID}..."
+    if "${aleph_bin}" file pin "${ROOTFS_CID}" \
+      --channel "${CHANNEL}" \
+      > "${stdout_log}" 2> "${stderr_log}"; then
+      break
+    fi
+
+    last_error_summary="$(python3 - "${stderr_log}" <<'PY'
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(errors="replace").strip()
+print(text or "Aleph pin failed without stderr output")
+PY
+)"
+
+    echo "Aleph pin attempt ${attempt}/${ALEPH_PIN_ATTEMPTS} failed for CID ${ROOTFS_CID}." >&2
+    if [[ -n "${last_error_summary}" ]]; then
+      echo "${last_error_summary}" >&2
+    fi
+
+    if [ "${attempt}" -lt "${ALEPH_PIN_ATTEMPTS}" ]; then
+      echo "Retrying Aleph pin in ${ALEPH_PIN_DELAY_SECONDS}s..." >&2
+      sleep "${ALEPH_PIN_DELAY_SECONDS}"
+      continue
+    fi
+
+    die "Aleph pin failed for CID ${ROOTFS_CID} after ${ALEPH_PIN_ATTEMPTS} attempts"
+  done
+
+  if [ ! -s "${stdout_log}" ]; then
+    if [ -n "${last_error_summary}" ]; then
+      echo "${last_error_summary}" >&2
+    fi
+    die "Aleph pin returned an empty response for CID ${ROOTFS_CID}"
   fi
 
-  ROOTFS_ITEM_HASH="$(python3 - "${OUT_DIR}/store-message.json" <<'PY'
+  ROOTFS_ITEM_HASH="$(python3 - "${stdout_log}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -254,6 +436,8 @@ payload = json.loads(content)
 print(payload["item_hash"])
 PY
 )" || die "Failed to extract Aleph item hash from ${OUT_DIR}/store-message.json"
+
+  wait_for_aleph_message_processed "${ROOTFS_ITEM_HASH}"
 
   echo "Published rootfs CID: ${ROOTFS_CID}"
   echo "Published Aleph item hash: ${ROOTFS_ITEM_HASH}"

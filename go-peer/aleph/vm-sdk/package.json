@@ -1,0 +1,12 @@
+{
+  "name": "@universal-connectivity/aleph-vm-sdk",
+  "private": true,
+  "type": "module",
+  "description": "Headless Aleph VM deployment helpers for uc-go-peer workflows",
+  "bin": {
+    "aleph-vm-sdk": "./bin/cli.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0"
+  }
+}

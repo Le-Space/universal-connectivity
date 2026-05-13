@@ -1,0 +1,259 @@
+name: Aleph VM deploy
+description: Deploy an Aleph VM from a published rootfs and expose runtime details as workflow outputs.
+
+inputs:
+  mode:
+    description: deploy or list-crns
+    required: false
+    default: deploy
+  aleph_private_key:
+    description: Hex EVM private key used to sign the Aleph INSTANCE message
+    required: false
+  api_host:
+    description: Aleph API host
+    required: false
+    default: https://api2.aleph.im
+  crn_list_url:
+    description: Aleph CRN list endpoint
+    required: false
+    default: https://crns-list.aleph.sh/crns.json
+  name:
+    description: Aleph VM instance name
+    required: false
+    default: uc-go-peer
+  ssh_public_key:
+    description: SSH public key to authorize inside the VM
+    required: false
+  rootfs_item_hash:
+    description: Aleph STORE item hash for the rootfs image
+    required: false
+  rootfs_version:
+    description: Optional rootfs version string to include in instance metadata
+    required: false
+    default: ''
+  rootfs_size_mib:
+    description: Rootfs volume size in MiB
+    required: false
+    default: '20480'
+  crn_hash:
+    description: Target CRN hash for the credit deployment
+    required: false
+  vcpus:
+    description: Requested vCPU count
+    required: false
+    default: '1'
+  memory_mib:
+    description: Requested memory in MiB
+    required: false
+    default: '1024'
+  seconds:
+    description: Aleph runtime seconds value
+    required: false
+    default: '30'
+  channel:
+    description: Aleph channel
+    required: false
+    default: TEST
+  wait_attempts:
+    description: Poll attempts while waiting for Aleph to process the deployment
+    required: false
+    default: '60'
+  wait_delay_ms:
+    description: Delay between poll attempts in milliseconds
+    required: false
+    default: '5000'
+  runtime_attempts:
+    description: Poll attempts while waiting for CRN runtime port mappings
+    required: false
+    default: '40'
+  runtime_delay_ms:
+    description: Delay between runtime polling attempts in milliseconds
+    required: false
+    default: '5000'
+  rootfs_wait_attempts:
+    description: Poll attempts while waiting for the rootfs STORE message to become processed before deployment
+    required: false
+    default: '60'
+  rootfs_wait_delay_ms:
+    description: Delay between rootfs STORE status polling attempts in milliseconds
+    required: false
+    default: '5000'
+  setup_attempts:
+    description: Poll attempts while waiting for the temporary setup endpoint
+    required: false
+    default: '15'
+  setup_delay_ms:
+    description: Delay between setup-endpoint polling attempts in milliseconds
+    required: false
+    default: '4000'
+  verify_attempts:
+    description: Poll attempts while waiting for configured ports and proxy to become reachable
+    required: false
+    default: '25'
+  verify_delay_ms:
+    description: Delay between reachability verification attempts in milliseconds
+    required: false
+    default: '5000'
+  tcp_timeout_ms:
+    description: TCP connect timeout in milliseconds
+    required: false
+    default: '5000'
+  http_timeout_ms:
+    description: HTTP probe timeout in milliseconds
+    required: false
+    default: '10000'
+  preferred_country_code:
+    description: Preferred two-letter country code for automatic CRN selection
+    required: false
+    default: 'DE'
+  geo_crn_limit:
+    description: Maximum number of top-ranked CRNs to geolocate when choosing a preferred country
+    required: false
+    default: '30'
+  max_crn_attempts:
+    description: Maximum number of distinct CRNs to try when Aleph rejects a deployment
+    required: false
+    default: '5'
+  enable_caddy_proxy:
+    description: Configure the guest with the Aleph web proxy hostname and enable Caddy-backed secure WSS
+    required: false
+    default: 'false'
+  auto_configure:
+    description: Configure the uc-go-peer guest over the temporary setup endpoint after deployment
+    required: false
+    default: 'true'
+  verify_reachability:
+    description: Verify mapped TCP ports and the HTTPS proxy after guest configuration
+    required: false
+    default: 'true'
+  required_ports_json:
+    description: JSON array of required internal port-forward declarations
+    required: false
+    default: '[{"port":22,"tcp":true,"udp":false,"purpose":"SSH"},{"port":80,"tcp":true,"udp":false,"purpose":"Temporary setup endpoint"},{"port":443,"tcp":true,"udp":false,"purpose":"Caddy HTTPS and WSS proxy"},{"port":9095,"tcp":true,"udp":true,"purpose":"libp2p raw TCP and UDP transports"}]'
+
+outputs:
+  deployer_address:
+    description: EVM address used for deployment
+    value: ${{ steps.deploy.outputs.deployer_address }}
+  instance_item_hash:
+    description: Aleph INSTANCE item hash
+    value: ${{ steps.deploy.outputs.instance_item_hash }}
+  instance_status:
+    description: Final Aleph deployment status
+    value: ${{ steps.deploy.outputs.instance_status }}
+  port_forward_aggregate_item_hash:
+    description: Aleph AGGREGATE item hash used to publish required port forwards
+    value: ${{ steps.deploy.outputs.port_forward_aggregate_item_hash }}
+  port_forward_status:
+    description: Aleph status of the required port-forward aggregate publication
+    value: ${{ steps.deploy.outputs.port_forward_status }}
+  crn_hash:
+    description: Selected CRN hash
+    value: ${{ steps.deploy.outputs.crn_hash }}
+  crn_name:
+    description: Selected CRN name
+    value: ${{ steps.deploy.outputs.crn_name }}
+  crn_url:
+    description: Selected CRN URL
+    value: ${{ steps.deploy.outputs.crn_url }}
+  host_ipv4:
+    description: Public host IPv4 reported by the CRN runtime
+    value: ${{ steps.deploy.outputs.host_ipv4 }}
+  ipv6:
+    description: VM IPv6 when available
+    value: ${{ steps.deploy.outputs.ipv6 }}
+  web_proxy_url:
+    description: Web proxy URL for the deployment when available
+    value: ${{ steps.deploy.outputs.web_proxy_url }}
+  setup_endpoint_ok:
+    description: Whether the temporary setup endpoint became reachable before guest configuration
+    value: ${{ steps.deploy.outputs.setup_endpoint_ok }}
+  ssh_command:
+    description: Ready-to-use ssh command derived from runtime port mappings
+    value: ${{ steps.deploy.outputs.ssh_command }}
+  mapped_ports_json:
+    description: JSON object of published port mappings
+    value: ${{ steps.deploy.outputs.mapped_ports_json }}
+  configuration_json:
+    description: JSON response from the uc-go-peer setup endpoint
+    value: ${{ steps.deploy.outputs.configuration_json }}
+  relay_peer_id:
+    description: Relay peer ID extracted from the guest after configuration
+    value: ${{ steps.deploy.outputs.relay_peer_id }}
+  probe_multiaddrs_json:
+    description: JSON array of relay multiaddrs to probe after deployment
+    value: ${{ steps.deploy.outputs.probe_multiaddrs_json }}
+  browser_bootstrap_multiaddrs_json:
+    description: JSON array of browser-dialable secure websocket relay multiaddrs for js-peer bootstrap configuration
+    value: ${{ steps.deploy.outputs.browser_bootstrap_multiaddrs_json }}
+  verification_json:
+    description: JSON object with post-configure reachability checks
+    value: ${{ steps.deploy.outputs.verification_json }}
+  verification_ok:
+    description: Whether all required post-configure checks passed
+    value: ${{ steps.deploy.outputs.verification_ok }}
+  port_forwarding_json:
+    description: JSON object summarizing the port-forward aggregate publication
+    value: ${{ steps.deploy.outputs.port_forwarding_json }}
+  runtime_json:
+    description: Full runtime detail JSON
+    value: ${{ steps.deploy.outputs.runtime_json }}
+  geocoded_crns_json:
+    description: JSON array of CRNs that already expose location metadata
+    value: ${{ steps.deploy.outputs.geocoded_crns_json }}
+  geocoded_crn_count:
+    description: Count of geocoded CRNs
+    value: ${{ steps.deploy.outputs.geocoded_crn_count }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: 24.x
+
+    - name: Install Aleph VM SDK dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../../go-peer/aleph/vm-sdk
+      run: npm ci --no-fund --no-audit
+
+    - name: Deploy Aleph VM or list geocoded CRNs
+      id: deploy
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../../go-peer/aleph/vm-sdk
+      env:
+        ALEPH_VM_MODE: ${{ inputs.mode }}
+        ALEPH_VM_PRIVATE_KEY: ${{ inputs.aleph_private_key }}
+        ALEPH_VM_API_HOST: ${{ inputs.api_host }}
+        ALEPH_VM_CRN_LIST_URL: ${{ inputs.crn_list_url }}
+        ALEPH_VM_NAME: ${{ inputs.name }}
+        ALEPH_VM_SSH_PUBLIC_KEY: ${{ inputs.ssh_public_key }}
+        ALEPH_VM_ROOTFS_ITEM_HASH: ${{ inputs.rootfs_item_hash }}
+        ALEPH_VM_ROOTFS_VERSION: ${{ inputs.rootfs_version }}
+        ALEPH_VM_ROOTFS_SIZE_MIB: ${{ inputs.rootfs_size_mib }}
+        ALEPH_VM_CRN_HASH: ${{ inputs.crn_hash }}
+        ALEPH_VM_VCPUS: ${{ inputs.vcpus }}
+        ALEPH_VM_MEMORY_MIB: ${{ inputs.memory_mib }}
+        ALEPH_VM_SECONDS: ${{ inputs.seconds }}
+        ALEPH_VM_CHANNEL: ${{ inputs.channel }}
+        ALEPH_VM_WAIT_ATTEMPTS: ${{ inputs.wait_attempts }}
+        ALEPH_VM_WAIT_DELAY_MS: ${{ inputs.wait_delay_ms }}
+        ALEPH_VM_RUNTIME_ATTEMPTS: ${{ inputs.runtime_attempts }}
+        ALEPH_VM_RUNTIME_DELAY_MS: ${{ inputs.runtime_delay_ms }}
+        ALEPH_VM_ROOTFS_WAIT_ATTEMPTS: ${{ inputs.rootfs_wait_attempts }}
+        ALEPH_VM_ROOTFS_WAIT_DELAY_MS: ${{ inputs.rootfs_wait_delay_ms }}
+        ALEPH_VM_SETUP_ATTEMPTS: ${{ inputs.setup_attempts }}
+        ALEPH_VM_SETUP_DELAY_MS: ${{ inputs.setup_delay_ms }}
+        ALEPH_VM_VERIFY_ATTEMPTS: ${{ inputs.verify_attempts }}
+        ALEPH_VM_VERIFY_DELAY_MS: ${{ inputs.verify_delay_ms }}
+        ALEPH_VM_TCP_TIMEOUT_MS: ${{ inputs.tcp_timeout_ms }}
+        ALEPH_VM_HTTP_TIMEOUT_MS: ${{ inputs.http_timeout_ms }}
+        ALEPH_VM_PREFERRED_COUNTRY_CODE: ${{ inputs.preferred_country_code }}
+        ALEPH_VM_GEO_CRN_LIMIT: ${{ inputs.geo_crn_limit }}
+        ALEPH_VM_MAX_CRN_ATTEMPTS: ${{ inputs.max_crn_attempts }}
+        ALEPH_VM_ENABLE_CADDY_PROXY: ${{ inputs.enable_caddy_proxy }}
+        ALEPH_VM_AUTO_CONFIGURE: ${{ inputs.auto_configure }}
+        ALEPH_VM_VERIFY_REACHABILITY: ${{ inputs.verify_reachability }}
+        ALEPH_VM_REQUIRED_PORTS_JSON: ${{ inputs.required_ports_json }}
+      run: node ./bin/cli.mjs

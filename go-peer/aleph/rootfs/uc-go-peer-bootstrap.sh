@@ -84,12 +84,8 @@ write_env_var() {
 seed_env() {
   write_env_var "GO_PEER_DATA_DIR" "${DATA_DIR}"
   write_env_var "GO_PEER_TCP_PORT" "9095"
-  write_env_var "GO_PEER_WS_PORT" "9096"
-  write_env_var "GO_PEER_QUIC_PORT" "9097"
-  write_env_var "GO_PEER_WEBTRANSPORT_PORT" "9097"
-  write_env_var "GO_PEER_WEBRTC_PORT" "9098"
   write_env_var "GO_PEER_IDENTITY_PATH" "${DATA_DIR}/identity.key"
-  write_env_var "GO_PEER_WS_BACKEND_PORT" "9096"
+  write_env_var "GO_PEER_WS_BACKEND_PORT" "9095"
   write_env_var "GO_PEER_AUTOTLS_CERT_DIR" "${DATA_DIR}/p2p-forge-certs"
   write_env_var "LIBP2P_AUTO_PUBLIC_IP" "0"
 }
