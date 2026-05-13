@@ -573,6 +573,15 @@ function isInvalidMessageFormatResponse(response, payload) {
   return false
 }
 
+function isRetryableBroadcastFailure(response, payload) {
+  if (response.status >= 500) return true
+  const publicationStatus = payload?.publication_status?.status
+  if (typeof publicationStatus === 'string' && publicationStatus.toLowerCase() === 'error') {
+    return true
+  }
+  return false
+}
+
 async function postBroadcastPayload(body, apiHost, trace = null, timeoutMs = 90000, attempts = 4) {
   const { response, payload } = await fetchJson(`${apiHost}/api/v0/messages`, {
     method: 'POST',
@@ -609,7 +618,9 @@ export async function broadcastAlephMessage(
       }
     }
 
-    const canRetry = index < attempts.length - 1 && isInvalidMessageFormatResponse(response, payload ?? {})
+    const canRetry =
+      index < attempts.length - 1 &&
+      (isInvalidMessageFormatResponse(response, payload ?? {}) || isRetryableBroadcastFailure(response, payload ?? {}))
     if (!canRetry) {
       throw new Error(`Broadcast failed: ${response.status} ${JSON.stringify(payload ?? {})}`)
     }
