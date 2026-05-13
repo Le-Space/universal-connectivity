@@ -103,7 +103,11 @@ def wait_for_exact_hosts(ws_port: str) -> tuple[str, list[str], list[str]]:
 
 def render_caddyfile(proxy_hostname: str) -> str:
     if uses_external_tls_frontend(proxy_hostname):
-        return f""":443 {{
+        return f"""{{ 
+    auto_https off
+}}
+
+:443 {{
     reverse_proxy http://127.0.0.1:{WS_BACKEND_PORT}
 }}
 """
