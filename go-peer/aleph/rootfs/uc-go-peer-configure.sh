@@ -134,6 +134,10 @@ announce=(
   "/ip4/${PUBLIC_IPV4}/tcp/${TCP_PORT}"
 )
 
+if [ -n "${WS_PORT}" ]; then
+  announce+=("/ip4/${PUBLIC_IPV4}/tcp/${WS_PORT}/tls/sni/*.${P2P_FORGE_DOMAIN}/ws")
+fi
+
 if [ -n "${UDP_PORT}" ]; then
   announce+=(
     "/ip4/${PUBLIC_IPV4}/udp/${UDP_PORT}/quic-v1"
@@ -144,6 +148,9 @@ fi
 
 if [ -n "${PUBLIC_IPV6}" ]; then
   announce+=("/ip6/${PUBLIC_IPV6}/tcp/${TCP_PORT}")
+  if [ -n "${WS_PORT}" ]; then
+    announce+=("/ip6/${PUBLIC_IPV6}/tcp/${WS_PORT}/tls/sni/*.${P2P_FORGE_DOMAIN}/ws")
+  fi
   if [ -n "${UDP_PORT}" ]; then
     announce+=(
       "/ip6/${PUBLIC_IPV6}/udp/${UDP_PORT}/quic-v1"
