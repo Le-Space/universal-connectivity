@@ -114,6 +114,15 @@ def render_caddyfile(proxy_hostname: str) -> str:
 """
 
 
+def configure_proxy_caddy(proxy_hostname: str) -> None:
+    os.makedirs(os.path.dirname(CADDYFILE), exist_ok=True)
+    with open(CADDYFILE, "w", encoding="utf-8") as handle:
+        handle.write(render_caddyfile(proxy_hostname))
+    open(AUTOTLS_CADDY_READY_FILE, "a", encoding="utf-8").close()
+    subprocess.run(["systemctl", "enable", CADDY_SERVICE], check=True)
+    subprocess.run(["systemctl", "restart", CADDY_SERVICE], check=True)
+
+
 def main() -> None:
     if not os.path.exists(READY_FILE):
         raise SystemExit(f"missing ready file: {READY_FILE}")
@@ -123,6 +132,10 @@ def main() -> None:
     if not ws_port:
         raise RuntimeError("missing GO_PEER_TCP_PORT in environment file")
 
+    proxy_hostname = env_values.get("PROXY_HOSTNAME", "").strip()
+    if proxy_hostname:
+        configure_proxy_caddy(proxy_hostname)
+
     zone, exact_hosts, exact_logged_addrs = wait_for_exact_hosts(ws_port)
     if not exact_hosts:
         raise RuntimeError("no AutoTLS websocket hostnames found in logs")
@@ -131,9 +144,7 @@ def main() -> None:
     wildcard_filtered = [entry for entry in existing if "/tls/sni/*." not in entry]
     exact_announces: list[str] = list(exact_logged_addrs)
 
-    proxy_hostname = env_values.get("PROXY_HOSTNAME", "").strip()
     if proxy_hostname:
-        exact_announces = []
         exact_announces.append(f"/dns4/{proxy_hostname}/tcp/443/tls/ws")
         exact_announces.append(f"/dns6/{proxy_hostname}/tcp/443/tls/ws")
 
@@ -155,14 +166,7 @@ def main() -> None:
         subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
         service_restarted = True
 
-    if proxy_hostname:
-        os.makedirs(os.path.dirname(CADDYFILE), exist_ok=True)
-        with open(CADDYFILE, "w", encoding="utf-8") as handle:
-            handle.write(render_caddyfile(proxy_hostname))
-        open(AUTOTLS_CADDY_READY_FILE, "a", encoding="utf-8").close()
-        subprocess.run(["systemctl", "enable", CADDY_SERVICE], check=True)
-        subprocess.run(["systemctl", "restart", CADDY_SERVICE], check=True)
-    else:
+    if not proxy_hostname:
         if os.path.exists(AUTOTLS_CADDY_READY_FILE):
             os.remove(AUTOTLS_CADDY_READY_FILE)
 

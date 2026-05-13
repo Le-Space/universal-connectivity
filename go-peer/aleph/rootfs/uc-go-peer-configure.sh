@@ -142,6 +142,8 @@ write_env_var "EXTERNAL_RELAY_TCP_PORT" "${TCP_PORT}"
 write_env_var "EXTERNAL_RELAY_WS_PORT" "${WS_PORT}"
 if [ -n "${PROXY_HOSTNAME}" ]; then
   write_env_var "PROXY_HOSTNAME" "${PROXY_HOSTNAME}"
+else
+  write_env_var "PROXY_HOSTNAME" ""
 fi
 if [ -n "${UDP_PORT}" ]; then
   write_env_var "EXTERNAL_RELAY_UDP_PORT" "${UDP_PORT}"
@@ -156,13 +158,11 @@ if [ "${START_SERVICE}" -eq 1 ]; then
   systemctl daemon-reload
   systemctl enable "${SERVICE_NAME}"
   systemctl restart "${SERVICE_NAME}"
-  if [ -n "${PROXY_HOSTNAME}" ]; then
-    systemctl enable "${AUTOTLS_REFRESH_SERVICE}"
-    systemctl restart "${AUTOTLS_REFRESH_SERVICE}"
-  else
-    systemctl stop "${AUTOTLS_REFRESH_SERVICE}" || true
+  systemctl enable "${AUTOTLS_REFRESH_SERVICE}"
+  if [ -z "${PROXY_HOSTNAME}" ]; then
     systemctl stop "${CADDY_SERVICE}" || true
   fi
+  systemctl restart --no-block "${AUTOTLS_REFRESH_SERVICE}"
 fi
 
 printf 'Configured LIBP2P_ANNOUNCE_ADDRS=%s\n' "${announce_value}"

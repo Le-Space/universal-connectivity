@@ -8,9 +8,9 @@ import time
 
 ENV_FILE = os.environ.get("ENV_FILE", "/etc/default/uc-go-peer")
 SERVICE_NAME = os.environ.get("SERVICE_NAME", "uc-go-peer.service")
-WAIT_TIMEOUT_SECONDS = int(os.environ.get("DESCRIBE_WAIT_TIMEOUT_SECONDS", "180"))
+WAIT_TIMEOUT_SECONDS = int(os.environ.get("DESCRIBE_WAIT_TIMEOUT_SECONDS", "240"))
 WAIT_INTERVAL_SECONDS = float(os.environ.get("DESCRIBE_WAIT_INTERVAL_SECONDS", "2"))
-AUTOTLS_EXTRA_WAIT_SECONDS = int(os.environ.get("DESCRIBE_AUTOTLS_EXTRA_WAIT_SECONDS", "45"))
+AUTOTLS_EXTRA_WAIT_SECONDS = int(os.environ.get("DESCRIBE_AUTOTLS_EXTRA_WAIT_SECONDS", "120"))
 
 PEER_ID_PATTERNS = [
     re.compile(r"PeerID:\s+(\S+)"),
@@ -123,7 +123,6 @@ def build_probe_multiaddrs(env_values: dict[str, str], peer_id: str, listening_a
 def main() -> None:
     started_at = time.monotonic()
     deadline = time.monotonic() + WAIT_TIMEOUT_SECONDS
-    env_values = parse_env_file(ENV_FILE)
     peer_id = None
     listening_addrs: list[str] = []
     grouped = {
@@ -134,6 +133,7 @@ def main() -> None:
     }
 
     while time.monotonic() < deadline:
+        env_values = parse_env_file(ENV_FILE)
         peer_id, listening_addrs = parse_logs()
         if not peer_id:
             time.sleep(WAIT_INTERVAL_SECONDS)
@@ -141,15 +141,18 @@ def main() -> None:
 
         grouped = build_probe_multiaddrs(env_values, peer_id, listening_addrs)
         proxy_hostname = env_values.get("PROXY_HOSTNAME", "").strip()
-        if grouped["autotls_wss_multiaddrs"] or proxy_hostname:
+        if grouped["autotls_wss_multiaddrs"]:
             break
-        if time.monotonic() - started_at >= AUTOTLS_EXTRA_WAIT_SECONDS:
+        if proxy_hostname and grouped["proxy_wss_multiaddrs"] and time.monotonic() - started_at >= AUTOTLS_EXTRA_WAIT_SECONDS:
+            break
+        if not proxy_hostname and time.monotonic() - started_at >= AUTOTLS_EXTRA_WAIT_SECONDS:
             break
         time.sleep(WAIT_INTERVAL_SECONDS)
 
     if not peer_id:
         raise SystemExit("unable to discover relay peer ID from service logs")
 
+    env_values = parse_env_file(ENV_FILE)
     payload = {
         "peer_id": peer_id,
         "announce_addrs": [

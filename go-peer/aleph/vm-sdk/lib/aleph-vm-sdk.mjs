@@ -1804,9 +1804,9 @@ export async function deployVmAndWait(args) {
       const metadataResult = await fetchUcGoPeerMetadata({
         hostIpv4: runtime.hostIpv4,
         setupPort,
-        attempts: args.metadataAttempts ?? 60,
+        attempts: args.metadataAttempts ?? 80,
         delayMs: args.metadataDelayMs ?? 3000,
-        timeoutMs: args.metadataTimeoutMs ?? 180000
+        timeoutMs: args.metadataTimeoutMs ?? 240000
       })
       configuration = {
         ...configuration,
