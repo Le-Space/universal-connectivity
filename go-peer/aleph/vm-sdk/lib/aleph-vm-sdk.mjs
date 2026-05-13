@@ -1688,9 +1688,44 @@ export async function deployVmAndWait(args) {
       deploymentResult = null
       continue
     } else {
-      throw new Error(
-        `Deployment message ${deployment.itemHash} on CRN ${candidateCrn.name ?? candidateCrn.hash} stayed ${deploymentResult.status} without becoming processed.`
+      log(
+        'warning',
+        `Deployment message ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash} stayed ${deploymentResult.status} without becoming processed.`
       )
+      const cleanup = await cleanupFailedDeployment({
+        privateKey: args.privateKey,
+        sender: deployment.sender,
+        instanceItemHash: deployment.itemHash,
+        reason: `Deployment message stayed ${deploymentResult.status}`,
+        channel: args.channel,
+        apiHost: args.apiHost ?? ALEPH_API_HOST,
+        trace
+      })
+      if (cleanup?.error) {
+        log(
+          'warning',
+          `Cleanup failed for pending deployment ${deployment.itemHash} on ${candidateCrn.name ?? candidateCrn.hash}: ${cleanup.error}`
+        )
+      } else if (cleanup?.itemHash) {
+        log(
+          'notice',
+          `Cleanup forget message ${cleanup.itemHash} submitted for pending deployment ${deployment.itemHash}.`
+        )
+      }
+      lastPartialResult = {
+        ...deployment,
+        attemptedCrns,
+        deploymentResult,
+        runtime: null,
+        configuration: null,
+        verification: null,
+        portForwarding: null,
+        crnNotify: null,
+        cleanup
+      }
+      deployment = null
+      deploymentResult = null
+      continue
     }
 
     const portForwarding = await ensureInstancePortForwards({
