@@ -83,6 +83,8 @@ def build_probe_multiaddrs(env_values: dict[str, str], peer_id: str, listening_a
     direct_tcp_multiaddrs: list[str] = []
     autotls_multiaddrs: list[str] = []
     proxy_multiaddrs: list[str] = []
+    webtransport_multiaddrs: list[str] = []
+    webrtc_direct_multiaddrs: list[str] = []
 
     for addr in announce_addrs:
         if "/tcp/" in addr and "/tls/" not in addr and "/ws" not in addr:
@@ -107,6 +109,17 @@ def build_probe_multiaddrs(env_values: dict[str, str], peer_id: str, listening_a
     if proxy_hostname:
         proxy_multiaddrs.append(f"/dns4/{proxy_hostname}/tcp/443/tls/ws/p2p/{peer_id}")
 
+    public_ipv4 = env_values.get("PUBLIC_IPV4", "").strip()
+    public_ipv6 = env_values.get("PUBLIC_IPV6", "").strip()
+    udp_port = env_values.get("EXTERNAL_RELAY_UDP_PORT", "").strip()
+    if udp_port:
+        if public_ipv4:
+            webtransport_multiaddrs.append(f"/ip4/{public_ipv4}/udp/{udp_port}/quic-v1/webtransport/p2p/{peer_id}")
+            webrtc_direct_multiaddrs.append(f"/ip4/{public_ipv4}/udp/{udp_port}/webrtc-direct/p2p/{peer_id}")
+        if public_ipv6:
+            webtransport_multiaddrs.append(f"/ip6/{public_ipv6}/udp/{udp_port}/quic-v1/webtransport/p2p/{peer_id}")
+            webrtc_direct_multiaddrs.append(f"/ip6/{public_ipv6}/udp/{udp_port}/webrtc-direct/p2p/{peer_id}")
+
     probe_multiaddrs.extend(direct_tcp_multiaddrs)
     probe_multiaddrs.extend(autotls_multiaddrs)
     probe_multiaddrs.extend(proxy_multiaddrs)
@@ -115,7 +128,11 @@ def build_probe_multiaddrs(env_values: dict[str, str], peer_id: str, listening_a
         "direct_tcp_multiaddrs": dedupe(direct_tcp_multiaddrs),
         "autotls_wss_multiaddrs": dedupe(autotls_multiaddrs),
         "proxy_wss_multiaddrs": dedupe(proxy_multiaddrs),
-        "browser_bootstrap_multiaddrs": dedupe(autotls_multiaddrs + proxy_multiaddrs),
+        "webtransport_multiaddrs": dedupe(webtransport_multiaddrs),
+        "webrtc_direct_multiaddrs": dedupe(webrtc_direct_multiaddrs),
+        "browser_bootstrap_multiaddrs": dedupe(
+            autotls_multiaddrs + proxy_multiaddrs + webtransport_multiaddrs + webrtc_direct_multiaddrs
+        ),
         "probe_multiaddrs": dedupe(probe_multiaddrs),
     }
 
@@ -129,6 +146,9 @@ def main() -> None:
         "direct_tcp_multiaddrs": [],
         "autotls_wss_multiaddrs": [],
         "proxy_wss_multiaddrs": [],
+        "webtransport_multiaddrs": [],
+        "webrtc_direct_multiaddrs": [],
+        "browser_bootstrap_multiaddrs": [],
         "probe_multiaddrs": [],
     }
 
