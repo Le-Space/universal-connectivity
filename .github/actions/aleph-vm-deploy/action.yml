@@ -129,7 +129,7 @@ inputs:
   required_ports_json:
     description: JSON array of required internal port-forward declarations
     required: false
-    default: '[{"port":22,"tcp":true,"udp":false,"purpose":"SSH"},{"port":80,"tcp":true,"udp":false,"purpose":"Temporary setup endpoint"},{"port":443,"tcp":true,"udp":false,"purpose":"Caddy HTTPS and WSS proxy"},{"port":9096,"tcp":true,"udp":false,"purpose":"libp2p secure websocket listener"},{"port":9095,"tcp":true,"udp":true,"purpose":"libp2p raw TCP and UDP transports"}]'
+    default: '[{"port":22,"tcp":true,"udp":false,"purpose":"SSH"},{"port":80,"tcp":true,"udp":false,"purpose":"Temporary setup endpoint"},{"port":443,"tcp":true,"udp":false,"purpose":"Caddy HTTPS and WSS proxy"},{"port":9097,"tcp":true,"udp":false,"purpose":"libp2p secure websocket listener"},{"port":9095,"tcp":true,"udp":true,"purpose":"libp2p raw TCP and UDP transports"}]'
 
 outputs:
   deployer_address:

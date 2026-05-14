@@ -85,6 +85,7 @@ seed_env() {
   write_env_var "GO_PEER_DATA_DIR" "${DATA_DIR}"
   write_env_var "GO_PEER_TCP_PORT" "9095"
   write_env_var "GO_PEER_WS_PORT" "9096"
+  write_env_var "GO_PEER_WSS_PORT" "9097"
   write_env_var "GO_PEER_IDENTITY_PATH" "${DATA_DIR}/identity.key"
   write_env_var "GO_PEER_WS_BACKEND_PORT" "9096"
   write_env_var "GO_PEER_AUTOTLS_CERT_DIR" "${DATA_DIR}/p2p-forge-certs"

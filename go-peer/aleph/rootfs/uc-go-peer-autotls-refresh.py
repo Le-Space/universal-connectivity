@@ -14,7 +14,7 @@ AUTOTLS_HOSTS_FILE = os.environ.get("AUTOTLS_HOSTS_FILE", "/etc/default/uc-go-pe
 SERVICE_NAME = os.environ.get("SERVICE_NAME", "uc-go-peer.service")
 WAIT_TIMEOUT_SECONDS = int(os.environ.get("AUTOTLS_WAIT_TIMEOUT_SECONDS", "900"))
 WAIT_INTERVAL_SECONDS = float(os.environ.get("AUTOTLS_WAIT_INTERVAL_SECONDS", "5"))
-WS_BACKEND_PORT = os.environ.get("WS_BACKEND_PORT", "9096").strip()
+WS_BACKEND_PORT = os.environ.get("WS_BACKEND_PORT", "9097").strip()
 
 
 def parse_env_file(path: str) -> dict[str, str]:
@@ -98,9 +98,9 @@ def main() -> None:
         raise SystemExit(f"missing ready file: {READY_FILE}")
 
     env_values = parse_env_file(ENV_FILE)
-    ws_port = env_values.get("GO_PEER_WS_PORT", "").strip() or env_values.get("GO_PEER_WS_BACKEND_PORT", "").strip() or WS_BACKEND_PORT
+    ws_port = env_values.get("GO_PEER_WSS_PORT", "").strip() or WS_BACKEND_PORT
     if not ws_port:
-        raise RuntimeError("missing GO_PEER_WS_PORT in environment file")
+        raise RuntimeError("missing GO_PEER_WSS_PORT in environment file")
 
     proxy_hostname = env_values.get("PROXY_HOSTNAME", "").strip()
 

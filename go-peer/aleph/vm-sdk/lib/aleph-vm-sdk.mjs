@@ -395,7 +395,7 @@ export function defaultRequiredPorts() {
     { port: 22, tcp: true, udp: false, purpose: 'SSH' },
     { port: 80, tcp: true, udp: false, purpose: 'Temporary setup endpoint' },
     { port: 443, tcp: true, udp: false, purpose: 'Caddy HTTPS and WSS proxy' },
-    { port: 9096, tcp: true, udp: false, purpose: 'libp2p secure websocket listener' },
+    { port: 9097, tcp: true, udp: false, purpose: 'libp2p secure websocket listener' },
     { port: 9095, tcp: true, udp: true, purpose: 'libp2p raw TCP and UDP transports' }
   ]
 }
@@ -1816,7 +1816,7 @@ export async function deployVmAndWait(args) {
       const mappedPorts = runtime.mappedPorts ?? {}
       const setupPort = mappedPorts['80']?.host ?? null
       const tcpPort = mappedPorts['9095']?.host ?? null
-      const wsPort = mappedPorts['9096']?.host ?? tcpPort
+      const wsPort = mappedPorts['9097']?.host ?? tcpPort
       const udpPort = mappedPorts['9095']?.udp === true ? mappedPorts['9095']?.host ?? null : null
       const proxyUrl = enableCaddyProxy ? runtime.proxyUrl ?? null : null
       const setupUrl = runtime.hostIpv4 && setupPort ? `http://${runtime.hostIpv4}:${setupPort}/health` : null

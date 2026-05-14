@@ -16,7 +16,7 @@ P2P_FORGE_DOMAIN="${P2P_FORGE_DOMAIN:-libp2p.direct}"
 PUBLIC_IPV4=""
 PUBLIC_IPV6=""
 TCP_PORT="9095"
-WS_PORT="9096"
+WS_PORT="9097"
 WS_BACKEND_PORT="9096"
 PROXY_HOSTNAME=""
 UDP_PORT=""
@@ -167,6 +167,7 @@ if [ -n "${PUBLIC_IPV6}" ]; then
 fi
 write_env_var "EXTERNAL_RELAY_TCP_PORT" "${TCP_PORT}"
 write_env_var "EXTERNAL_RELAY_WS_PORT" "${WS_PORT}"
+write_env_var "GO_PEER_WSS_PORT" "${GO_PEER_WSS_PORT:-9097}"
 if [ -n "${PROXY_HOSTNAME}" ]; then
   write_env_var "PROXY_HOSTNAME" "${PROXY_HOSTNAME}"
   mkdir -p "$(dirname "${CADDYFILE}")"

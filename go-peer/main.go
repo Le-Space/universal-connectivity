@@ -152,7 +152,8 @@ func main() {
 	roomFlag := flag.String("room", DefaultRoom, "the gossipsub topic / room to join (mDNS only)")
 	headless := flag.Bool("headless", false, "run without chat UI")
 	port := flag.String("port", "9095", "port to listen on")
-	wsPort := flag.String("ws-port", "9096", "port to listen on for secure websocket transports")
+	wsPort := flag.String("ws-port", "9096", "port to listen on for plain websocket transports")
+	wssPort := flag.String("wss-port", "9097", "port to listen on for secure websocket transports")
 
 	var addrsToConnectTo stringSlice
 	flag.Var(&addrsToConnectTo, "connect", "address to connect to (can be used multiple times)")
@@ -237,8 +238,10 @@ func main() {
 			"/ip6/::/udp/"+*port+"/quic-v1",
 			"/ip6/::/udp/"+*port+"/quic-v1/webtransport",
 			"/ip6/::/udp/"+*port+"/webrtc-direct",
-			fmt.Sprintf("/ip4/0.0.0.0/tcp/"+*wsPort+"/tls/sni/*.%s/ws", p2pforge.DefaultForgeDomain),
-			fmt.Sprintf("/ip6/::/tcp/"+*wsPort+"/tls/sni/*.%s/ws", p2pforge.DefaultForgeDomain),
+			"/ip4/0.0.0.0/tcp/"+*wsPort+"/ws",
+			"/ip6/::/tcp/"+*wsPort+"/ws",
+			fmt.Sprintf("/ip4/0.0.0.0/tcp/"+*wssPort+"/tls/sni/*.%s/ws", p2pforge.DefaultForgeDomain),
+			fmt.Sprintf("/ip6/::/tcp/"+*wssPort+"/tls/sni/*.%s/ws", p2pforge.DefaultForgeDomain),
 		),
 		libp2p.ResourceManager(getResourceManager()),
 		libp2p.Transport(webtransport.New),
