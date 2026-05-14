@@ -52,7 +52,7 @@ flowchart TD
     H --> I
     H --> L[aleph-uc-go-peer.qcow2]
     G --> M[rootfs-manifest.json]
-    J --> N[deployed VM metadata and probe multiaddrs]
+    J --> N[deployed VM metadata, probe addrs, and browser bootstrap addrs]
     D --> O[published js-peer site]
 ```
 
@@ -72,7 +72,7 @@ flowchart TD
     I --> J
     J --> K[Emit qcow2 and dist-rootfs/rootfs-manifest.json]
     K --> L{publish=true?}
-    L -- no --> M[Upload qcow2 and manifest as workflow artifacts]
+    L -- no --> M[Keep build local to the runner and expose summary outputs only]
     L -- yes --> N[Upload qcow2 to Aleph IPFS add endpoint]
     N --> O[Wait for CID gateway availability]
     O --> P[aleph file pin CID]
@@ -85,7 +85,7 @@ flowchart TD
     U -- yes --> W[Deploy uc-go-peer VM from rootfs item hash]
     W --> X[Create Aleph port forwards and notify CRN]
     X --> Y[Call guest /configure on mapped port for internal 80]
-    Y --> Z[Collect guest metadata:<br/>peer ID, probe multiaddrs, browser bootstrap multiaddrs]
+    Y --> Z[Collect guest metadata:<br/>peer ID, probe multiaddrs,<br/>browser bootstrap multiaddrs]
     Z --> ZA[Run node-js-peer protocol probes against returned multiaddrs]
     ZA --> ZB{browser bootstrap multiaddrs returned?}
     ZB -- no --> ZC[Keep initial js-peer publish]
@@ -160,30 +160,55 @@ flowchart TD
     D --> E[uc-go-peer-configure.sh writes /etc/default/uc-go-peer]
     E --> F[Enable + restart uc-go-peer.service]
     F --> G{Proxy hostname requested?}
-    G -- no --> H[Skip caddy-ready flag and keep direct forwarded ports as primary path]
-    G -- yes --> I[Enable + restart uc-go-peer-autotls-refresh.service]
-    I --> J[AutoTLS refresh optionally writes Caddyfile and caddy-ready flag]
-    H --> K[Setup server replies with guest metadata JSON]
-    J --> K
-    K --> L[Setup server stops bootstrap service after response]
+    G -- no --> H[Stop Caddy and keep direct forwarded ports as primary path]
+    G -- yes --> I[Render Caddyfile for the 2n6 hostname and start Caddy on 443]
+    I --> J[Enable + restart uc-go-peer-autotls-refresh.service]
+    J --> K[AutoTLS refresh waits for Public reachability, requests libp2p.direct certs, and restarts go-peer when ready]
+    H --> L[Setup server replies with guest metadata JSON]
+    K --> L
+    L --> M[Setup server stops bootstrap service after response]
 
     B -- yes --> F
 
-    F --> M[universal-chat-go starts on internal port 9095]
-    M --> N[Logs emit peer ID and listening multiaddrs]
-    N --> O[uc-go-peer-describe.py extracts peer ID, direct TCP, AutoTLS WSS, and proxy WSS addrs]
-    O --> P[Workflow probes returned multiaddrs]
+    F --> N[universal-chat-go listens on 9095 for raw TCP and UDP]
+    F --> O[universal-chat-go listens on 9096 for plain WS backend traffic from Caddy]
+    F --> P[universal-chat-go listens on 9097 for direct secure WSS and AutoTLS]
+    N --> Q[Logs emit peer ID and listening multiaddrs]
+    O --> Q
+    P --> Q
+    Q --> R[uc-go-peer-describe.py extracts direct TCP, AutoTLS WSS, proxy WSS, WebTransport, and webrtc-direct addrs]
+    R --> S[Workflow probes returned multiaddrs and optionally rebuilds js-peer]
 ```
 
-### 5. How `js-peer` Gets Its Relay Bootstrap Addresses
+### 5. Port Topology And Address Families
+
+```mermaid
+flowchart LR
+    A[Aleph mapped host ports] --> B[VM port 80<br/>temporary setup API]
+    A --> C[VM port 443<br/>Caddy TLS frontend for 2n6 hostname]
+    A --> D[VM port 9095<br/>raw relay TCP and UDP]
+    A --> E[VM port 9097<br/>direct secure WSS and AutoTLS]
+
+    C --> F[VM port 9096<br/>plain WS backend]
+    F --> G[go-peer plain WS transport]
+    D --> H[go-peer raw TCP and UDP transports]
+    E --> I[go-peer secure WSS transport]
+
+    H --> J[Announced direct TCP and UDP addrs]
+    I --> K[Announced libp2p.direct WSS addrs]
+    C --> L[Announced 2n6 proxy WSS addrs]
+    D --> M[Announced WebTransport and webrtc-direct addrs]
+```
+
+### 6. How `js-peer` Gets Its Relay Bootstrap Addresses
 
 ```mermaid
 flowchart TD
     A[js-peer build starts] --> B{NEXT_PUBLIC_RELAY_LISTEN_ADDRS set in build env?}
-    B -- yes --> C[Use explicit secure websocket relay multiaddrs from workflow]
+    B -- yes --> C[Use explicit browser relay multiaddrs from workflow]
     B -- no --> D[Use NEXT_PUBLIC_BOOTSTRAP_PEER_IDS or built-in BOOTSTRAP_PEER_IDS]
     D --> E[Query delegated routing for peer records]
-    E --> F[Filter browser-dialable addrs:<br/>tls/ws or webtransport]
+    E --> F[Filter browser-dialable addrs:<br/>tls/ws, webtransport, or webrtc-direct]
     F --> G[Append /p2p/peerId]
     C --> H[Ship compiled site with resolved relay bootstrap list]
     G --> H
@@ -193,7 +218,7 @@ flowchart TD
     J --> H
     K --> H
 
-    L[Workflow second publish after VM deploy] --> M[Guest returns browser_bootstrap_multiaddrs_json]
+    L[Workflow second publish after VM deploy] --> M[Guest returns browser_bootstrap_multiaddrs_json<br/>proxy WSS, AutoTLS WSS, WebTransport, webrtc-direct]
     M --> N[Workflow sets NEXT_PUBLIC_RELAY_LISTEN_ADDRS only for rebuild]
     N --> H
 ```
@@ -217,9 +242,9 @@ flowchart TD
 - `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-setup-server.py`
   Temporary HTTP setup endpoint that accepts Aleph port-mapping information.
 - `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-autotls-refresh.py`
-  AutoTLS hostname extraction and announce-address normalization after startup.
+  AutoTLS reachability wait, libp2p.direct certificate acquisition, and restart after secure WSS hostnames become available.
 - `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-describe.py`
-  Guest-side metadata extractor used after configuration to report the relay peer ID and probe/bootstrap multiaddrs.
+  Guest-side metadata extractor used after configuration to report the relay peer ID plus probe, browser bootstrap, WebTransport, and webrtc-direct multiaddrs.
 - `universal-connectivity/.github/workflows/build-aleph-go-peer-rootfs.yml`
   CI entrypoint for building and optionally publishing the Aleph rootfs image.
 - `universal-connectivity/.github/workflows/uc-go-peer-rootfs-reusable.yml`
@@ -289,7 +314,7 @@ it now performs a two-pass `js-peer` publish:
    `js-peer` site.
 2. Deploy the `uc-go-peer` VM and wait for the guest to report its final relay
    multiaddrs.
-3. Extract browser-dialable secure websocket relay addresses from the deployed
+3. Extract browser-dialable relay addresses from the deployed
    VM metadata.
 4. Rebuild `js-peer` with `NEXT_PUBLIC_RELAY_LISTEN_ADDRS` set to those final
    deployed relay addresses.
@@ -306,3 +331,6 @@ One important implementation detail:
   as a build-time environment variable
 - `js-peer/src/lib/libp2p.ts` prefers that variable over delegated-routing
   bootstrap discovery when it is present
+- the injected list now carries the browser-usable relay families returned by
+  the VM metadata step: proxy WSS, AutoTLS WSS, WebTransport, and
+  `webrtc-direct`
