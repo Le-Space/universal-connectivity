@@ -10,6 +10,7 @@
     "profile": "uc-go-peer",
     "installMode": "prebaked",
     "installDir": "/opt/go-peer",
+    "binaryPath": "/usr/local/bin/universal-chat-go",
     "dataDir": "/var/lib/uc-go-peer",
     "envFile": "/etc/default/uc-go-peer"
   },

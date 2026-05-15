@@ -92,22 +92,27 @@ def build_probe_multiaddrs(env_values: dict[str, str], peer_id: str, listening_a
 
     ws_port = env_values.get("EXTERNAL_RELAY_WS_PORT", "").strip()
     for addr in listening_addrs:
-        if "/tls/ws" in addr:
-            dns_match = re.search(r"/dns[46]/([^/]+)/tcp/(\d+)/tls/ws$", addr)
-            if dns_match:
-                host = dns_match.group(1)
-                autotls_multiaddrs.append(f"/dns4/{host}/tcp/{ws_port or dns_match.group(2)}/tls/ws/p2p/{peer_id}")
-                continue
+        if "/tls/" not in addr or not addr.endswith("/ws"):
+            continue
 
-            sni_match = re.search(r"/tls/sni/([^/]+)/ws$", addr)
-            if sni_match:
-                host = sni_match.group(1)
-                if ws_port:
-                    autotls_multiaddrs.append(f"/dns4/{host}/tcp/{ws_port}/tls/ws/p2p/{peer_id}")
+        dns_match = re.search(r"/dns[46]/([^/]+)/tcp/(\d+)/tls/ws$", addr)
+        if dns_match:
+            host = dns_match.group(1)
+            autotls_multiaddrs.append(f"/dns4/{host}/tcp/{ws_port or dns_match.group(2)}/tls/ws/p2p/{peer_id}")
+            autotls_multiaddrs.append(f"/dns6/{host}/tcp/{ws_port or dns_match.group(2)}/tls/ws/p2p/{peer_id}")
+            continue
+
+        sni_match = re.search(r"/tls/sni/([^/]+)/ws$", addr)
+        if sni_match:
+            host = sni_match.group(1)
+            if ws_port:
+                autotls_multiaddrs.append(f"/dns4/{host}/tcp/{ws_port}/tls/ws/p2p/{peer_id}")
+                autotls_multiaddrs.append(f"/dns6/{host}/tcp/{ws_port}/tls/ws/p2p/{peer_id}")
 
     proxy_hostname = env_values.get("PROXY_HOSTNAME", "").strip()
     if proxy_hostname:
         proxy_multiaddrs.append(f"/dns4/{proxy_hostname}/tcp/443/tls/ws/p2p/{peer_id}")
+        proxy_multiaddrs.append(f"/dns6/{proxy_hostname}/tcp/443/tls/ws/p2p/{peer_id}")
 
     public_ipv4 = env_values.get("PUBLIC_IPV4", "").strip()
     public_ipv6 = env_values.get("PUBLIC_IPV6", "").strip()

@@ -14,10 +14,14 @@ This setup is intentionally narrow. It currently supports only the prebaked
 `uc-go-peer` rootfs image and does not try to remain a generic multi-profile VM
 builder.
 
+For `uc-go-peer`, the rootfs contract now distinguishes between the relay-owned
+support directory at `/opt/go-peer` and the actual guest executable path at
+`/usr/local/bin/universal-chat-go`.
+
 ## Layout
 
 - `root-profiles/uc-go-peer.json`
-  The relay-owned contract for install paths, services, port forwards, and manifest notes.
+  The relay-owned contract for the support directory, executable path, services, port forwards, and manifest notes.
 - `rootfs/build-rootfs.sh`
   Top-level orchestrator for local/CI builds, optional Aleph publish, and manifest generation.
 - `rootfs/build-rootfs-image.sh`
@@ -182,9 +186,9 @@ flowchart TD
       Q --> R[Download base Debian qcow2 if missing]
       R --> S[Copy and resize base image]
       S --> T[Build universal-chat-go with host/container Go toolchain]
-      T --> U[virt-customize --mkdir /opt/go-peer]
+      T --> U[virt-customize --mkdir /opt/go-peer support dir]
       U --> V[virt-customize --mkdir /var/lib/uc-go-peer]
-      V --> W[Copy binary, scripts, and systemd units]
+      V --> W[Copy binary to /usr/local/bin and install scripts + systemd units]
       W --> X[Run uc-go-peer-bootstrap.sh base]
       X --> Y[Run uc-go-peer-bootstrap.sh build validation]
       Y --> Z[Run uc-go-peer-bootstrap.sh finalize]

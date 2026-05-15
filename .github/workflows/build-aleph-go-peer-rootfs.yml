@@ -63,7 +63,7 @@ on:
       vm_enable_caddy_proxy:
         description: Also configure the Aleph web proxy hostname and guest Caddy for secure WSS on 443
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:

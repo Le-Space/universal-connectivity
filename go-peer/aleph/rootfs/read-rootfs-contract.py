@@ -53,6 +53,7 @@ def main() -> int:
         shell_assign("ROOTFS_CONTRACT_INSTALL_MODE", install_mode.strip()),
         shell_assign("ROOTFS_CONTRACT_SOURCE_SUBDIRECTORY", str(source.get("subdirectory", ""))),
         shell_assign("ROOTFS_CONTRACT_INSTALL_DIR", str(rootfs.get("installDir", ""))),
+        shell_assign("ROOTFS_CONTRACT_BINARY_PATH", str(rootfs.get("binaryPath", "/usr/local/bin/universal-chat-go"))),
         shell_assign("ROOTFS_CONTRACT_DATA_DIR", str(rootfs.get("dataDir", ""))),
         shell_assign("ROOTFS_CONTRACT_ENV_FILE", str(rootfs.get("envFile", ""))),
         shell_assign("ROOTFS_CONTRACT_MAIN_SERVICE", str(services.get("main", ""))),

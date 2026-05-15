@@ -79,7 +79,7 @@ on:
       vm_enable_caddy_proxy:
         description: Enable the proxy/Caddy path so uc-go-peer also advertises secure WSS via the Aleph web proxy hostname
         required: false
-        default: false
+        default: true
         type: boolean
       retain_successful_deployments:
         description: Keep only the latest N successful published+deployed uc-go-peer deployments and forget older Aleph INSTANCE/STORE messages
@@ -209,6 +209,7 @@ jobs:
           print(f"ROOTFS_PROFILE={rootfs['profile']}")
           print(f"ROOTFS_INSTALL_MODE={rootfs['installMode']}")
           print(f"ROOTFS_INSTALL_DIR={rootfs['installDir']}")
+          print(f"ROOTFS_BINARY_PATH={rootfs.get('binaryPath', '/usr/local/bin/universal-chat-go')}")
           print(f"ROOTFS_DATA_DIR={rootfs['dataDir']}")
           print(f"ROOTFS_ENV_FILE={rootfs['envFile']}")
           print(f"ROOTFS_SERVICE_MAIN={services['main']}")
@@ -702,6 +703,7 @@ jobs:
             echo "- Builder path: \`go-peer/aleph/rootfs\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
+            echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"
             echo "- Derived version: \`${ROOTFS_VERSION}\`"
             echo "- Publish to Aleph: \`${{ inputs.publish }}\`"
             echo "- Deploy VM after publish: \`${{ inputs.deploy_vm }}\`"

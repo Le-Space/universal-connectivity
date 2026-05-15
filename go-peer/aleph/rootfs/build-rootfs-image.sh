@@ -27,6 +27,9 @@ require go
 
 eval "$(python3 "${SCRIPT_DIR}/read-rootfs-contract.py" "${ROOTFS_CONTRACT_FILE}")"
 
+ROOTFS_CONTRACT_BINARY_PATH="${ROOTFS_CONTRACT_BINARY_PATH:-/usr/local/bin/universal-chat-go}"
+GUEST_APP_DIR="$(dirname "${ROOTFS_CONTRACT_BINARY_PATH}")"
+
 if [ "${ROOTFS_CONTRACT_PROFILE}" != "uc-go-peer" ]; then
   echo "Only the uc-go-peer rootfs profile is supported, got: ${ROOTFS_CONTRACT_PROFILE}" >&2
   exit 1
@@ -66,7 +69,7 @@ virt-customize \
   -a "${IMAGE}" \
   --mkdir "${ROOTFS_CONTRACT_INSTALL_DIR}" \
   --mkdir "${ROOTFS_CONTRACT_DATA_DIR}" \
-  --copy-in "${APP_BINARY}:/usr/local/bin" \
+  --copy-in "${APP_BINARY}:${GUEST_APP_DIR}" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-bootstrap.sh:/usr/local/sbin" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-configure.sh:/usr/local/sbin" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-autotls-refresh.py:/usr/local/sbin" \
@@ -75,15 +78,15 @@ virt-customize \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-bootstrap.service:/etc/systemd/system" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer-autotls-refresh.service:/etc/systemd/system" \
   --copy-in "${SCRIPT_DIR}/uc-go-peer.service:/etc/systemd/system" \
-  --run-command "chmod 0755 /usr/local/bin/$(basename "${APP_BINARY}")" \
+  --run-command "chmod 0755 ${ROOTFS_CONTRACT_BINARY_PATH}" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-bootstrap.sh" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-configure.sh" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-autotls-refresh.py" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-describe.py" \
   --run-command "chmod 0755 /usr/local/sbin/uc-go-peer-setup-server.py" \
-  --run-command "INSTALL_DIR=${ROOTFS_CONTRACT_INSTALL_DIR} DATA_DIR=${ROOTFS_CONTRACT_DATA_DIR} ENV_FILE=${ROOTFS_CONTRACT_ENV_FILE} SERVICE_USER=uc-go-peer /usr/local/sbin/uc-go-peer-bootstrap.sh base" \
-  --run-command "INSTALL_DIR=${ROOTFS_CONTRACT_INSTALL_DIR} DATA_DIR=${ROOTFS_CONTRACT_DATA_DIR} ENV_FILE=${ROOTFS_CONTRACT_ENV_FILE} SERVICE_USER=uc-go-peer /usr/local/sbin/uc-go-peer-bootstrap.sh build" \
-  --run-command "INSTALL_DIR=${ROOTFS_CONTRACT_INSTALL_DIR} DATA_DIR=${ROOTFS_CONTRACT_DATA_DIR} ENV_FILE=${ROOTFS_CONTRACT_ENV_FILE} SERVICE_USER=uc-go-peer /usr/local/sbin/uc-go-peer-bootstrap.sh finalize" \
+  --run-command "INSTALL_DIR=${ROOTFS_CONTRACT_INSTALL_DIR} APP_BINARY=${ROOTFS_CONTRACT_BINARY_PATH} DATA_DIR=${ROOTFS_CONTRACT_DATA_DIR} ENV_FILE=${ROOTFS_CONTRACT_ENV_FILE} SERVICE_USER=uc-go-peer /usr/local/sbin/uc-go-peer-bootstrap.sh base" \
+  --run-command "INSTALL_DIR=${ROOTFS_CONTRACT_INSTALL_DIR} APP_BINARY=${ROOTFS_CONTRACT_BINARY_PATH} DATA_DIR=${ROOTFS_CONTRACT_DATA_DIR} ENV_FILE=${ROOTFS_CONTRACT_ENV_FILE} SERVICE_USER=uc-go-peer /usr/local/sbin/uc-go-peer-bootstrap.sh build" \
+  --run-command "INSTALL_DIR=${ROOTFS_CONTRACT_INSTALL_DIR} APP_BINARY=${ROOTFS_CONTRACT_BINARY_PATH} DATA_DIR=${ROOTFS_CONTRACT_DATA_DIR} ENV_FILE=${ROOTFS_CONTRACT_ENV_FILE} SERVICE_USER=uc-go-peer /usr/local/sbin/uc-go-peer-bootstrap.sh finalize" \
   --run-command "systemctl enable ${ROOTFS_CONTRACT_BOOTSTRAP_SERVICE}" \
   --run-command "systemctl enable ${ROOTFS_CONTRACT_AUTOTLS_SERVICE}" \
   --run-command "systemctl enable ${ROOTFS_CONTRACT_MAIN_SERVICE}"

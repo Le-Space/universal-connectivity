@@ -15,12 +15,12 @@ APP_BINARY="${APP_BINARY:-/usr/local/bin/universal-chat-go}"
 PHASE="${1:-all}"
 
 if [ ! -d "${INSTALL_DIR}" ]; then
-  echo "Missing ${INSTALL_DIR}; the rootfs build did not create the install directory."
+  echo "Missing ${INSTALL_DIR}; the rootfs build did not create the relay support directory."
   exit 1
 fi
 
 echo "[uc-go-peer-bootstrap] starting"
-echo "[uc-go-peer-bootstrap] install dir: ${INSTALL_DIR}"
+echo "[uc-go-peer-bootstrap] support dir: ${INSTALL_DIR}"
 echo "[uc-go-peer-bootstrap] data dir: ${DATA_DIR}"
 echo "[uc-go-peer-bootstrap] env file: ${ENV_FILE}"
 echo "[uc-go-peer-bootstrap] app binary: ${APP_BINARY}"
