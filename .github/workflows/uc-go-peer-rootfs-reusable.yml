@@ -607,7 +607,6 @@ jobs:
       - name: Retain latest successful deployments
         if: ${{ inputs.publish && inputs.deploy_vm && fromJSON(inputs.retain_successful_deployments) > 0 }}
         id: retention
-        working-directory: universal-connectivity/go-peer/aleph/vm-sdk
         env:
           ALEPH_VM_MODE: retain-successful-deployments
           ALEPH_VM_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
@@ -618,8 +617,12 @@ jobs:
           ALEPH_VM_RETENTION_CURRENT_RECORD_JSON: >-
             {"instance_item_hash":"${{ steps.deploy_vm.outputs.instance_item_hash }}","rootfs_item_hash":"${{ steps.collect_rootfs_outputs.outputs.rootfs_item_hash }}","rootfs_cid":"${{ steps.collect_rootfs_outputs.outputs.rootfs_cid }}","site_item_hash":"${{ steps.repin_site.outputs.item_hash != '' && steps.repin_site.outputs.item_hash || steps.pin_site.outputs.item_hash }}","site_url":"${{ steps.redeploy_site.outputs.url != '' && steps.redeploy_site.outputs.url || steps.deploy_site.outputs.url }}","relay_peer_id":"${{ steps.deploy_vm.outputs.relay_peer_id }}","rootfs_version":"${{ env.ROOTFS_VERSION }}","vm_name":"${{ inputs.vm_name }}","deployed_at":"${{ github.run_id }}-${{ github.run_attempt }}"}
         run: |
-          npm ci --no-fund --no-audit
-          node ./bin/cli.mjs
+          set -euo pipefail
+          workdir="$(mktemp -d)"
+          cd "${workdir}"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.0
+          node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"
 
       - name: Export reusable workflow outputs
         if: ${{ always() }}

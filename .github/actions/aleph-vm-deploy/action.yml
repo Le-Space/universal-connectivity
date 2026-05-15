@@ -1,5 +1,5 @@
 name: Aleph VM deploy
-description: Deploy an Aleph VM from a published rootfs and expose runtime details as workflow outputs.
+description: Compatibility wrapper that forwards the UC workflow contract to the published shared Aleph tooling packages.
 
 inputs:
   mode:
@@ -38,6 +38,7 @@ inputs:
   crn_hash:
     description: Target CRN hash for the credit deployment
     required: false
+    default: ''
   vcpus:
     description: Requested vCPU count
     required: false
@@ -63,7 +64,7 @@ inputs:
     required: false
     default: '5000'
   runtime_attempts:
-    description: Poll attempts while waiting for CRN runtime port mappings
+    description: Poll attempts while waiting for CRN runtime networking to appear
     required: false
     default: '40'
   runtime_delay_ms:
@@ -71,11 +72,11 @@ inputs:
     required: false
     default: '5000'
   rootfs_wait_attempts:
-    description: Poll attempts while waiting for the rootfs STORE message to become processed before deployment
+    description: Reserved for compatibility with the legacy UC deploy action
     required: false
     default: '60'
   rootfs_wait_delay_ms:
-    description: Delay between rootfs STORE status polling attempts in milliseconds
+    description: Reserved for compatibility with the legacy UC deploy action
     required: false
     default: '5000'
   setup_attempts:
@@ -134,76 +135,76 @@ inputs:
 outputs:
   deployer_address:
     description: EVM address used for deployment
-    value: ${{ steps.deploy.outputs.deployer_address }}
+    value: ${{ steps.shared.outputs.deployer_address }}
   instance_item_hash:
     description: Aleph INSTANCE item hash
-    value: ${{ steps.deploy.outputs.instance_item_hash }}
+    value: ${{ steps.shared.outputs.instance_item_hash }}
   instance_status:
     description: Final Aleph deployment status
-    value: ${{ steps.deploy.outputs.instance_status }}
+    value: ${{ steps.shared.outputs.instance_status }}
   port_forward_aggregate_item_hash:
     description: Aleph AGGREGATE item hash used to publish required port forwards
-    value: ${{ steps.deploy.outputs.port_forward_aggregate_item_hash }}
+    value: ${{ steps.shared.outputs.port_forward_aggregate_item_hash }}
   port_forward_status:
     description: Aleph status of the required port-forward aggregate publication
-    value: ${{ steps.deploy.outputs.port_forward_status }}
+    value: ${{ steps.shared.outputs.port_forward_status }}
   crn_hash:
     description: Selected CRN hash
-    value: ${{ steps.deploy.outputs.crn_hash }}
+    value: ${{ steps.shared.outputs.crn_hash }}
   crn_name:
     description: Selected CRN name
-    value: ${{ steps.deploy.outputs.crn_name }}
+    value: ${{ steps.shared.outputs.crn_name }}
   crn_url:
     description: Selected CRN URL
-    value: ${{ steps.deploy.outputs.crn_url }}
+    value: ${{ steps.shared.outputs.crn_url }}
   host_ipv4:
     description: Public host IPv4 reported by the CRN runtime
-    value: ${{ steps.deploy.outputs.host_ipv4 }}
+    value: ${{ steps.shared.outputs.host_ipv4 }}
   ipv6:
     description: VM IPv6 when available
-    value: ${{ steps.deploy.outputs.ipv6 }}
+    value: ${{ steps.shared.outputs.ipv6 }}
   web_proxy_url:
     description: Web proxy URL for the deployment when available
-    value: ${{ steps.deploy.outputs.web_proxy_url }}
+    value: ${{ steps.shared.outputs.web_proxy_url }}
   setup_endpoint_ok:
     description: Whether the temporary setup endpoint became reachable before guest configuration
-    value: ${{ steps.deploy.outputs.setup_endpoint_ok }}
+    value: ${{ steps.shared.outputs.setup_endpoint_ok }}
   ssh_command:
     description: Ready-to-use ssh command derived from runtime port mappings
-    value: ${{ steps.deploy.outputs.ssh_command }}
+    value: ${{ steps.shared.outputs.ssh_command }}
   mapped_ports_json:
     description: JSON object of published port mappings
-    value: ${{ steps.deploy.outputs.mapped_ports_json }}
+    value: ${{ steps.shared.outputs.mapped_ports_json }}
   configuration_json:
     description: JSON response from the uc-go-peer setup endpoint
-    value: ${{ steps.deploy.outputs.configuration_json }}
+    value: ${{ steps.shared.outputs.configuration_json }}
   relay_peer_id:
     description: Relay peer ID extracted from the guest after configuration
-    value: ${{ steps.deploy.outputs.relay_peer_id }}
+    value: ${{ steps.shared.outputs.relay_peer_id }}
   probe_multiaddrs_json:
     description: JSON array of relay multiaddrs to probe after deployment
-    value: ${{ steps.deploy.outputs.probe_multiaddrs_json }}
+    value: ${{ steps.shared.outputs.probe_multiaddrs_json }}
   browser_bootstrap_multiaddrs_json:
     description: JSON array of browser-dialable secure websocket relay multiaddrs for js-peer bootstrap configuration
-    value: ${{ steps.deploy.outputs.browser_bootstrap_multiaddrs_json }}
+    value: ${{ steps.shared.outputs.browser_bootstrap_multiaddrs_json }}
   verification_json:
     description: JSON object with post-configure reachability checks
-    value: ${{ steps.deploy.outputs.verification_json }}
+    value: ${{ steps.shared.outputs.verification_json }}
   verification_ok:
     description: Whether all required post-configure checks passed
-    value: ${{ steps.deploy.outputs.verification_ok }}
+    value: ${{ steps.shared.outputs.verification_ok }}
   port_forwarding_json:
     description: JSON object summarizing the port-forward aggregate publication
-    value: ${{ steps.deploy.outputs.port_forwarding_json }}
+    value: ${{ steps.shared.outputs.port_forwarding_json }}
   runtime_json:
     description: Full runtime detail JSON
-    value: ${{ steps.deploy.outputs.runtime_json }}
+    value: ${{ steps.shared.outputs.runtime_json }}
   geocoded_crns_json:
     description: JSON array of CRNs that already expose location metadata
-    value: ${{ steps.deploy.outputs.geocoded_crns_json }}
+    value: ${{ steps.shared.outputs.geocoded_crns_json }}
   geocoded_crn_count:
     description: Count of geocoded CRNs
-    value: ${{ steps.deploy.outputs.geocoded_crn_count }}
+    value: ${{ steps.shared.outputs.geocoded_crn_count }}
 
 runs:
   using: composite
@@ -213,17 +214,12 @@ runs:
       with:
         node-version: 24.x
 
-    - name: Install Aleph VM SDK dependencies
+    - name: Run published shared Aleph VM action runner
+      id: shared
       shell: bash
-      working-directory: ${{ github.action_path }}/../../../go-peer/aleph/vm-sdk
-      run: npm ci --no-fund --no-audit
-
-    - name: Deploy Aleph VM or list geocoded CRNs
-      id: deploy
-      shell: bash
-      working-directory: ${{ github.action_path }}/../../../go-peer/aleph/vm-sdk
       env:
         ALEPH_VM_MODE: ${{ inputs.mode }}
+        ALEPH_VM_PROFILE: uc-go-peer
         ALEPH_VM_PRIVATE_KEY: ${{ inputs.aleph_private_key }}
         ALEPH_VM_API_HOST: ${{ inputs.api_host }}
         ALEPH_VM_CRN_LIST_URL: ${{ inputs.crn_list_url }}
@@ -256,4 +252,10 @@ runs:
         ALEPH_VM_AUTO_CONFIGURE: ${{ inputs.auto_configure }}
         ALEPH_VM_VERIFY_REACHABILITY: ${{ inputs.verify_reachability }}
         ALEPH_VM_REQUIRED_PORTS_JSON: ${{ inputs.required_ports_json }}
-      run: node ./bin/cli.mjs
+      run: |
+        set -euo pipefail
+        workdir="$(mktemp -d)"
+        cd "${workdir}"
+        npm init -y >/dev/null 2>&1
+        npm install --no-save --no-package-lock @le-space/node@0.1.0
+        node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"

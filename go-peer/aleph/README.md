@@ -29,6 +29,16 @@ builder.
 
 ## Diagrams
 
+Current diagram set in this README:
+
+- Repository-level ownership and data flow.
+- Reusable workflow end-to-end build, publish, deploy, probe, and republish flow.
+- `aleph-vm-deploy` composite action internals.
+- Rootfs build orchestration and qcow2 customization path.
+- Guest runtime and post-deploy configuration lifecycle.
+- Port topology and address-family mapping.
+- `js-peer` bootstrap-address resolution and refresh path.
+
 ### 1. Repository-Level Flow
 
 ```mermaid
@@ -42,7 +52,7 @@ flowchart TD
     C --> G[rootfs/build-rootfs.sh]
     C --> H[rootfs/build-rootfs-image.sh]
     C --> I[rootfs guest bootstrap + setup + describe scripts]
-    C --> J[vm-sdk deploy helper]
+    C --> J[published shared Aleph deploy package]
 
     K[build-aleph-go-peer-rootfs.yml] --> F
     K --> G
@@ -56,7 +66,7 @@ flowchart TD
     D --> O[published js-peer site]
 ```
 
-### 2. Workflow End-To-End: Rootfs, VM, Probe, And Site Republish
+### 2. Workflow End-To-End: Rootfs, VM, Probe, Site Republish, And Retention
 
 ```mermaid
 flowchart TD
@@ -83,10 +93,10 @@ flowchart TD
     T --> U{deploy_vm=true?}
     U -- no --> V[Export site URL and manifest URLs]
     U -- yes --> W[Deploy uc-go-peer VM from rootfs item hash]
-    W --> X[Create Aleph port forwards and notify CRN]
-    X --> Y[Call guest /configure on mapped port for internal 80]
-    Y --> Z[Collect guest metadata:<br/>peer ID, probe multiaddrs,<br/>browser bootstrap multiaddrs]
-    Z --> ZA[Run node-js-peer protocol probes against returned multiaddrs]
+    W --> X[Publish required port forwards and wait for runtime mappings]
+    X --> Y[Probe temporary setup endpoint on mapped external port for guest port 80]
+    Y --> Z[Call guest /configure then poll /metadata]
+    Z --> ZA[Collect peer ID, probe multiaddrs, browser bootstrap addrs, and verification data]
     ZA --> ZB{browser bootstrap multiaddrs returned?}
     ZB -- no --> ZC[Keep initial js-peer publish]
     ZB -- yes --> ZD[Rebuild js-peer with NEXT_PUBLIC_RELAY_LISTEN_ADDRS env override]
@@ -94,14 +104,58 @@ flowchart TD
     ZE --> ZF{main branch with custom domain?}
     ZF -- no --> ZG[Export final site URL and manifest URLs]
     ZF -- yes --> ZH[Relink custom domain to republished js-peer site]
+    ZA --> ZJ[Run node-js-peer protocol probes against returned probe_multiaddrs]
+    ZJ --> ZK{retain_successful_deployments > 0?}
+    ZK -- no --> ZL[Skip retention cleanup]
+    ZK -- yes --> ZM[Record current deployment and forget older STORE/INSTANCE messages]
     V --> ZI[Workflow summary and outputs]
     ZC --> ZI
     ZG --> ZI
     ZH --> ZI
     M --> ZI
+    ZL --> ZI
+    ZM --> ZI
 ```
 
-### 3. What Happens Inside `go-peer/aleph/rootfs`
+### 3. What The `aleph-vm-deploy` Action Actually Does
+
+```mermaid
+flowchart TD
+    A[Workflow step uses .github/actions/aleph-vm-deploy] --> B[setup-node 24]
+    B --> C[npm install @le-space/node@0.1.0 in temp workspace]
+    C --> D[node runActionMode from published package]
+
+    D --> E{mode}
+    E -->|list-crns| F[Fetch CRN list, enrich geo metadata, output geocoded CRNs]
+    E -->|deploy| G[Validate SSH key, rootfs item hash, compute deployer wallet]
+
+    G --> H{rootfs STORE message already processed?}
+    H -- no --> I[Wait for rootfs STORE message]
+    H -- yes --> J[Continue]
+    I --> J
+
+    J --> K{explicit CRN hash provided?}
+    K -- yes --> L[Use requested CRN]
+    K -- no --> M[Fetch CRNs, rank candidates, prefer country when possible]
+    M --> N[Try up to max_crn_attempts distinct CRNs]
+    L --> O[Create and sign Aleph INSTANCE message]
+    N --> O
+    O --> P[Broadcast deployment]
+    P --> Q[Wait for Aleph deployment result]
+    Q --> R[Publish required port forwards as Aleph aggregate]
+    R --> S[Poll CRN runtime for host IP, IPv6, proxy URL, and mapped ports]
+    S --> T{auto_configure=true?}
+    T -- no --> U[Return runtime outputs only]
+    T -- yes --> V[Poll temporary guest setup endpoint]
+    V --> W[POST /configure with public IPs, mapped ports, and optional proxy URL]
+    W --> X[Poll /metadata until guest reports peer and address families]
+    X --> Y{verify_reachability=true?}
+    Y -- no --> Z[Return configuration and metadata outputs]
+    Y -- yes --> ZA[Check mapped TCP ports and optional HTTPS proxy reachability]
+    ZA --> Z[Return verification, metadata, SSH command, and runtime outputs]
+```
+
+### 4. What Happens Inside `go-peer/aleph/rootfs`
 
 ```mermaid
 flowchart TD
@@ -150,7 +204,7 @@ flowchart TD
     ZJ --> ZK[rootfs-manifest.json<br/>profile/version/ports/notes/item hash]
 ```
 
-### 4. Runtime Behavior Inside The VM
+### 5. Runtime Behavior Inside The VM
 
 ```mermaid
 flowchart TD
@@ -163,24 +217,25 @@ flowchart TD
     G -- no --> H[Stop Caddy and keep direct forwarded ports as primary path]
     G -- yes --> I[Render Caddyfile for the 2n6 hostname and start Caddy on 443]
     I --> J[Enable + restart uc-go-peer-autotls-refresh.service]
-    J --> K[AutoTLS refresh waits for Public reachability, requests libp2p.direct certs, and restarts go-peer when ready]
-    H --> L[Setup server replies with guest metadata JSON]
-    K --> L
-    L --> M[Setup server stops bootstrap service after response]
+    J --> K[AutoTLS refresh waits for exact WSS hostnames in logs, rewrites announce addrs, and restarts go-peer when needed]
+    H --> L[POST /configure replies configured and starts async metadata generation]
+    K --> M[GET /metadata returns peer ID plus direct TCP, AutoTLS WSS, proxy WSS, WebTransport, and webrtc-direct addrs]
+    L --> M
+    M --> N[Setup server shuts itself down and stops bootstrap service]
 
     B -- yes --> F
 
-    F --> N[universal-chat-go listens on 9095 for raw TCP and UDP]
-    F --> O[universal-chat-go listens on 9096 for plain WS backend traffic from Caddy]
-    F --> P[universal-chat-go listens on 9097 for direct secure WSS and AutoTLS]
-    N --> Q[Logs emit peer ID and listening multiaddrs]
-    O --> Q
-    P --> Q
-    Q --> R[uc-go-peer-describe.py extracts direct TCP, AutoTLS WSS, proxy WSS, WebTransport, and webrtc-direct addrs]
-    R --> S[Workflow probes returned multiaddrs and optionally rebuilds js-peer]
+    F --> O[universal-chat-go listens on 9095 for raw TCP and UDP]
+    F --> P[universal-chat-go listens on 9096 for plain WS backend traffic from Caddy]
+    F --> Q[universal-chat-go listens on 9097 for direct secure WSS and AutoTLS]
+    O --> R[Logs emit peer ID and listening multiaddrs]
+    P --> R
+    Q --> R
+    R --> S[uc-go-peer-describe.py groups probe addrs and browser bootstrap addrs]
+    S --> T[Workflow probes returned multiaddrs and optionally rebuilds js-peer]
 ```
 
-### 5. Port Topology And Address Families
+### 6. Port Topology And Address Families
 
 ```mermaid
 flowchart LR
@@ -200,7 +255,7 @@ flowchart LR
     D --> M[Announced WebTransport and webrtc-direct addrs]
 ```
 
-### 6. How `js-peer` Gets Its Relay Bootstrap Addresses
+### 7. How `js-peer` Gets Its Relay Bootstrap Addresses
 
 ```mermaid
 flowchart TD
@@ -214,7 +269,7 @@ flowchart TD
     G --> H
 
     I[Workflow first publish] --> J[js-peer/public/rootfs/uc-go-peer/latest.json]
-    I --> K[js-peer/public/rootfs/uc-go-peer/${ROOTFS_VERSION}.json]
+    I --> K[js-peer/public/rootfs/uc-go-peer/versioned manifest json]
     J --> H
     K --> H
 
@@ -250,28 +305,30 @@ flowchart TD
 - `universal-connectivity/.github/workflows/uc-go-peer-rootfs-reusable.yml`
   Main reusable workflow that builds the rootfs, publishes manifests, optionally deploys the VM, runs protocol probes, and republishes `js-peer` with deployed relay addresses.
 
-## Headless VM Deploy SDK
+## Headless VM Deploy Path
 
-For workflow-driven VM creation, `go-peer/aleph/vm-sdk` now contains a small
-headless Aleph deploy helper that mirrors the useful parts of the deployer PWA
-without the browser wallet dependency.
+For workflow-driven VM creation, `universal-connectivity` now consumes the
+published shared Node package from the standalone shared repo instead of
+keeping a local Aleph VM SDK copy.
 
-- `go-peer/aleph/vm-sdk/lib/aleph-vm-sdk.mjs`
-  Reusable functions for:
+- `@le-space/node`
+  Published shared Node adapter package that now owns the reusable headless
+  deploy logic for:
   `listGeocodedCrns()`
-  `deployVm()`
-  `waitForDeploymentResult()`
-  `fetchVmRuntime()`
-  `deployVmAndWait()`
-- `.github/actions/aleph-vm-deploy/action.yml`
-  Composite GitHub Action wrapper that installs the SDK and returns:
+  deployment creation and signing
+  Aleph result polling
+  runtime inspection
+  guest configuration
+  retention cleanup
+- `.github/actions/aleph-vm-deploy/action.yml` (thin UC wrapper around the published shared Aleph tooling package path)
+  Composite GitHub Action wrapper that installs `@le-space/node@0.1.0` and returns:
   host IPv4, IPv6, proxy URL, mapped ports JSON, a ready-to-use SSH command,
   setup-endpoint reachability, and post-configure verification results.
 
 The important architectural split is:
 
 - the PWA still owns the browser signing flow
-- the SDK/action uses a headless EVM private key for GitHub Actions
+- the published shared Node package uses a headless EVM private key for GitHub Actions
 - for `uc-go-peer`, the action also publishes the required Aleph port-forward
   aggregate, waits for runtime mappings, calls the temporary setup endpoint on
   the mapped external port for internal `80`, and then verifies the durable
