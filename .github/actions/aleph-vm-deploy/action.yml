@@ -257,5 +257,5 @@ runs:
         workdir="$(mktemp -d)"
         cd "${workdir}"
         npm init -y >/dev/null 2>&1
-        npm install --no-save --no-package-lock @le-space/node@0.1.0
+        npm install --no-save --no-package-lock @le-space/node@0.1.1
         node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"
