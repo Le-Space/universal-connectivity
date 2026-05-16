@@ -456,15 +456,16 @@ jobs:
         working-directory: universal-connectivity/node-js-peer
         run: npm ci --no-fund --no-audit
 
-      - name: Probe published relay multiaddrs
+      - name: Probe published and browser bootstrap relay multiaddrs
         if: ${{ inputs.deploy_vm }}
         id: protocol_probe
         working-directory: universal-connectivity/node-js-peer
         env:
           PROBE_MULTIADDRS_JSON: ${{ steps.deploy_vm.outputs.probe_multiaddrs_json }}
+          BROWSER_BOOTSTRAP_MULTIADDRS_JSON: ${{ steps.deploy_vm.outputs.browser_bootstrap_multiaddrs_json }}
         run: |
-          if [[ -z "${PROBE_MULTIADDRS_JSON}" || "${PROBE_MULTIADDRS_JSON}" == "[]" ]]; then
-            echo "No relay probe multiaddrs were returned by the deployed guest." >&2
+          if [[ ( -z "${PROBE_MULTIADDRS_JSON}" || "${PROBE_MULTIADDRS_JSON}" == "[]" ) && ( -z "${BROWSER_BOOTSTRAP_MULTIADDRS_JSON}" || "${BROWSER_BOOTSTRAP_MULTIADDRS_JSON}" == "[]" ) ]]; then
+            echo "No relay probe or browser bootstrap multiaddrs were returned by the deployed guest." >&2
             exit 1
           fi
 
@@ -472,7 +473,25 @@ jobs:
           import json
           import os
 
-          addrs = json.loads(os.environ["PROBE_MULTIADDRS_JSON"])
+          combined = []
+          for key in ("PROBE_MULTIADDRS_JSON", "BROWSER_BOOTSTRAP_MULTIADDRS_JSON"):
+              raw = os.environ.get(key, "[]")
+              for addr in json.loads(raw):
+                  if isinstance(addr, str):
+                      trimmed = addr.strip()
+                      if trimmed:
+                          combined.append(trimmed)
+
+          seen = set()
+          addrs = []
+          for addr in combined:
+              if addr not in seen:
+                  seen.add(addr)
+                  addrs.append(addr)
+
+          if not addrs:
+              raise SystemExit("Combined relay probe address set was empty after filtering.")
+
           for addr in addrs:
               print(addr)
           PY
