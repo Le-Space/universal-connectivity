@@ -307,7 +307,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.3
+          npm install --no-save --no-package-lock @le-space/node@0.1.4
           node --input-type=module -e "import { runRootfsMode } from '@le-space/node'; await runRootfsMode(process.env);"
 
       - name: Install js-peer publish helpers
@@ -719,8 +719,8 @@ jobs:
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Builder path: \`@le-space/node@0.1.3 -> runRootfsMode(...)\`"
-            echo "- Shared tooling source: \`npm:@le-space/node@0.1.3\`"
+            echo "- Builder path: \`@le-space/node@0.1.4 -> runRootfsMode(...)\`"
+            echo "- Shared tooling source: \`npm:@le-space/node@0.1.4\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"
