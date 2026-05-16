@@ -307,7 +307,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.11
+          npm install --no-save --no-package-lock @le-space/node@0.1.12
           node --input-type=module -e "import { runRootfsMode } from '@le-space/node'; await runRootfsMode(process.env);"
 
       - name: Install js-peer publish helpers
@@ -323,83 +323,31 @@ jobs:
           npm ci
           npm run build
 
-      - name: Upload js-peer site to IPFS
+      - name: Publish js-peer site through shared runner
         if: ${{ inputs.publish }}
         id: deploy_site
-        working-directory: universal-connectivity
+        env:
+          ALEPH_VM_MODE: site-publish
+          ALEPH_SITE_PROJECT_DIR: ${{ github.workspace }}/universal-connectivity
+          ALEPH_SITE_DIRECTORY: js-peer/out
         run: |
-          set -euo pipefail
-
-          result="$(python3 go-peer/aleph/publish-static-site.py js-peer/out)"
-          echo "${result}" | tee /tmp/js-peer-ipfs-upload.json
-
-          ipfs_cid_v0="$(echo "${result}" | jq -r '.cid_v0')"
-          ipfs_cid_v1="$(echo "${result}" | jq -r '.cid_v1')"
-
-          if [[ -z "${ipfs_cid_v0}" || -z "${ipfs_cid_v1}" || "${ipfs_cid_v0}" == "null" || "${ipfs_cid_v1}" == "null" ]]; then
-            echo "Failed to extract IPFS CIDs from upload result: ${result}" >&2
-            exit 1
-          fi
-
-          echo "IPFS_CID_V0=${ipfs_cid_v0}" >> "$GITHUB_ENV"
-          echo "IPFS_CID_V1=${ipfs_cid_v1}" >> "$GITHUB_ENV"
-          echo "URL=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_ENV"
-          echo "url=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_OUTPUT"
-
-      - name: Pin js-peer site on Aleph
-        if: ${{ inputs.publish }}
-        id: pin_site
-        working-directory: universal-connectivity
-        run: |
-          set -euo pipefail
-
-          tmp_json="$(mktemp)"
-          err_log="$(mktemp)"
-          status_response="$(mktemp)"
-
-          echo "Pinning js-peer IPFS CID ${IPFS_CID_V0} on Aleph..."
-          if ! aleph file pin "${IPFS_CID_V0}" >"${tmp_json}" 2>"${err_log}"; then
-            echo "Aleph pin failed for js-peer CID ${IPFS_CID_V0}" >&2
-            if [[ -s "${err_log}" ]]; then
-              echo "--- aleph stderr ---" >&2
-              cat "${err_log}" >&2
-            fi
-            if [[ -s "${tmp_json}" ]]; then
-              echo "--- aleph stdout ---" >&2
-              cat "${tmp_json}" >&2
-            fi
-            exit 1
-          fi
-
-          if [[ ! -s "${tmp_json}" ]]; then
-            echo "Aleph pin returned an empty response for js-peer CID ${IPFS_CID_V0}" >&2
-            exit 1
-          fi
-
-          item_hash="$(python3 -c 'import json, sys; from pathlib import Path; payload = json.loads(Path(sys.argv[1]).read_text()); item_hash = payload.get("item_hash", ""); sys.exit("Aleph pin response did not include item_hash") if not item_hash else print(item_hash)' "${tmp_json}")"
-
-          echo "ITEM_HASH=${item_hash}" >> "$GITHUB_ENV"
-          echo "item_hash=${item_hash}" >> "$GITHUB_OUTPUT"
-          echo "Waiting for js-peer Aleph STORE message ${item_hash} to become processed..."
-          python3 go-peer/aleph/wait-for-aleph-message.py \
-            "https://api2.aleph.im" \
-            "${item_hash}" \
-            60 \
-            5 \
-            > "${status_response}"
-          cat "${status_response}"
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Link production domain on Aleph as IPFS
         if: ${{ inputs.publish && github.ref == 'refs/heads/main' && inputs.aleph_domain != '' }}
         run: |
-          if [[ -z "${ITEM_HASH:-}" ]]; then
-            echo "ITEM_HASH is missing after js-peer deployment"
+          if [[ -z "${{ steps.deploy_site.outputs.item_hash }}" ]]; then
+            echo "deploy_site.outputs.item_hash is missing after js-peer deployment"
             exit 1
           fi
           mkdir -p /home/runner/.aleph-im/private-keys
           echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
           aleph domain detach "${{ inputs.aleph_domain }}" --no-ask || true
-          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "$ITEM_HASH" --catch-all-path /index.html --no-ask
+          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "${{ steps.deploy_site.outputs.item_hash }}" --catch-all-path /index.html --no-ask
 
       - name: Collect rootfs publish outputs
         id: collect_rootfs_outputs
@@ -407,7 +355,7 @@ jobs:
         run: |
           rootfs_cid='${{ steps.build_rootfs.outputs.rootfs_cid }}'
           rootfs_item_hash='${{ steps.build_rootfs.outputs.rootfs_item_hash }}'
-          site_url="${URL:-}"
+          site_url='${{ steps.deploy_site.outputs.url }}'
           manifest_latest_url=''
           manifest_versioned_url=''
 
@@ -459,84 +407,31 @@ jobs:
       - name: Probe published and browser bootstrap relay multiaddrs
         if: ${{ inputs.deploy_vm }}
         id: protocol_probe
-        working-directory: universal-connectivity/node-js-peer
         env:
+          ALEPH_VM_MODE: relay-probe
+          ALEPH_SITE_PROBE_WORKDIR: ${{ github.workspace }}/universal-connectivity/node-js-peer
+          ALEPH_SITE_PROBE_SCRIPT: ${{ github.workspace }}/universal-connectivity/node-js-peer/scripts/probe-relay.mjs
           PROBE_MULTIADDRS_JSON: ${{ steps.deploy_vm.outputs.probe_multiaddrs_json }}
           BROWSER_BOOTSTRAP_MULTIADDRS_JSON: ${{ steps.deploy_vm.outputs.browser_bootstrap_multiaddrs_json }}
         run: |
-          if [[ ( -z "${PROBE_MULTIADDRS_JSON}" || "${PROBE_MULTIADDRS_JSON}" == "[]" ) && ( -z "${BROWSER_BOOTSTRAP_MULTIADDRS_JSON}" || "${BROWSER_BOOTSTRAP_MULTIADDRS_JSON}" == "[]" ) ]]; then
-            echo "No relay probe or browser bootstrap multiaddrs were returned by the deployed guest." >&2
-            exit 1
-          fi
-
-          python3 - <<'PY' > "$RUNNER_TEMP/uc-go-peer-probe-addrs.txt"
-          import json
-          import os
-
-          combined = []
-          for key in ("PROBE_MULTIADDRS_JSON", "BROWSER_BOOTSTRAP_MULTIADDRS_JSON"):
-              raw = os.environ.get(key, "[]")
-              for addr in json.loads(raw):
-                  if isinstance(addr, str):
-                      trimmed = addr.strip()
-                      if trimmed:
-                          combined.append(trimmed)
-
-          seen = set()
-          addrs = []
-          for addr in combined:
-              if addr not in seen:
-                  seen.add(addr)
-                  addrs.append(addr)
-
-          if not addrs:
-              raise SystemExit("Combined relay probe address set was empty after filtering.")
-
-          for addr in addrs:
-              print(addr)
-          PY
-
-          mapfile -t PROBE_ADDRS < "$RUNNER_TEMP/uc-go-peer-probe-addrs.txt"
-          node ./scripts/probe-relay.mjs "${PROBE_ADDRS[@]}" | tee "$RUNNER_TEMP/uc-go-peer-probe.jsonl"
-
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          path = Path(os.environ["RUNNER_TEMP"]) / "uc-go-peer-probe.jsonl"
-          rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-          if not rows:
-              raise SystemExit("Relay probe produced no JSON output.")
-          if any(not row.get("ok") for row in rows):
-              raise SystemExit("At least one relay protocol probe failed.")
-          PY
-
-          {
-            echo "ok=true"
-            echo "json<<EOF"
-            cat "$RUNNER_TEMP/uc-go-peer-probe.jsonl"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Prepare js-peer relay bootstrap env
         if: ${{ inputs.publish && inputs.deploy_vm }}
         id: js_peer_bootstrap
         env:
+          ALEPH_VM_MODE: bootstrap-env
           BROWSER_BOOTSTRAP_MULTIADDRS_JSON: ${{ steps.deploy_vm.outputs.browser_bootstrap_multiaddrs_json }}
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          import os
-
-          raw = os.environ.get("BROWSER_BOOTSTRAP_MULTIADDRS_JSON", "[]")
-          addrs = json.loads(raw)
-          csv_value = ",".join(addr.strip() for addr in addrs if addr and addr.strip())
-          print(f"json={json.dumps(addrs)}")
-          print(f"csv={csv_value}")
-          print(f"count={len(addrs)}")
-          print(f"available={'true' if len(addrs) > 0 else 'false'}")
-          PY
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Rebuild js-peer site with deployed relay bootstrap addrs
         if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' }}
@@ -546,83 +441,31 @@ jobs:
         run: |
           npm run build
 
-      - name: Upload republished js-peer site to IPFS
+      - name: Publish republished js-peer site through shared runner
         if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' }}
         id: redeploy_site
-        working-directory: universal-connectivity
+        env:
+          ALEPH_VM_MODE: site-publish
+          ALEPH_SITE_PROJECT_DIR: ${{ github.workspace }}/universal-connectivity
+          ALEPH_SITE_DIRECTORY: js-peer/out
         run: |
-          set -euo pipefail
-
-          result="$(python3 go-peer/aleph/publish-static-site.py js-peer/out)"
-          echo "${result}" | tee /tmp/js-peer-ipfs-upload-republished.json
-
-          ipfs_cid_v0="$(echo "${result}" | jq -r '.cid_v0')"
-          ipfs_cid_v1="$(echo "${result}" | jq -r '.cid_v1')"
-
-          if [[ -z "${ipfs_cid_v0}" || -z "${ipfs_cid_v1}" || "${ipfs_cid_v0}" == "null" || "${ipfs_cid_v1}" == "null" ]]; then
-            echo "Failed to extract republished IPFS CIDs from upload result: ${result}" >&2
-            exit 1
-          fi
-
-          echo "FINAL_IPFS_CID_V0=${ipfs_cid_v0}" >> "$GITHUB_ENV"
-          echo "FINAL_IPFS_CID_V1=${ipfs_cid_v1}" >> "$GITHUB_ENV"
-          echo "FINAL_URL=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_ENV"
-          echo "url=https://${ipfs_cid_v1}.ipfs.aleph.sh" >> "$GITHUB_OUTPUT"
-
-      - name: Pin republished js-peer site on Aleph
-        if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' }}
-        id: repin_site
-        working-directory: universal-connectivity
-        run: |
-          set -euo pipefail
-
-          tmp_json="$(mktemp)"
-          err_log="$(mktemp)"
-          status_response="$(mktemp)"
-
-          echo "Pinning republished js-peer IPFS CID ${FINAL_IPFS_CID_V0} on Aleph..."
-          if ! aleph file pin "${FINAL_IPFS_CID_V0}" >"${tmp_json}" 2>"${err_log}"; then
-            echo "Aleph pin failed for republished js-peer CID ${FINAL_IPFS_CID_V0}" >&2
-            if [[ -s "${err_log}" ]]; then
-              echo "--- aleph stderr ---" >&2
-              cat "${err_log}" >&2
-            fi
-            if [[ -s "${tmp_json}" ]]; then
-              echo "--- aleph stdout ---" >&2
-              cat "${tmp_json}" >&2
-            fi
-            exit 1
-          fi
-
-          if [[ ! -s "${tmp_json}" ]]; then
-            echo "Aleph pin returned an empty response for republished js-peer CID ${FINAL_IPFS_CID_V0}" >&2
-            exit 1
-          fi
-
-          item_hash="$(python3 -c 'import json, sys; from pathlib import Path; payload = json.loads(Path(sys.argv[1]).read_text()); item_hash = payload.get("item_hash", ""); sys.exit("Aleph pin response did not include item_hash") if not item_hash else print(item_hash)' "${tmp_json}")"
-
-          echo "FINAL_ITEM_HASH=${item_hash}" >> "$GITHUB_ENV"
-          echo "item_hash=${item_hash}" >> "$GITHUB_OUTPUT"
-          echo "Waiting for republished js-peer Aleph STORE message ${item_hash} to become processed..."
-          python3 go-peer/aleph/wait-for-aleph-message.py \
-            "https://api2.aleph.im" \
-            "${item_hash}" \
-            60 \
-            5 \
-            > "${status_response}"
-          cat "${status_response}"
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Relink production domain to republished js-peer site
         if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' && github.ref == 'refs/heads/main' && inputs.aleph_domain != '' }}
         run: |
-          if [[ -z "${FINAL_ITEM_HASH:-}" ]]; then
-            echo "FINAL_ITEM_HASH is missing after js-peer republish"
+          if [[ -z "${{ steps.redeploy_site.outputs.item_hash }}" ]]; then
+            echo "redeploy_site.outputs.item_hash is missing after js-peer republish"
             exit 1
           fi
           mkdir -p /home/runner/.aleph-im/private-keys
           echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
           aleph domain detach "${{ inputs.aleph_domain }}" --no-ask || true
-          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "$FINAL_ITEM_HASH" --catch-all-path /index.html --no-ask
+          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "${{ steps.redeploy_site.outputs.item_hash }}" --catch-all-path /index.html --no-ask
 
       - name: Retain latest successful deployments
         if: ${{ inputs.publish && inputs.deploy_vm && fromJSON(inputs.retain_successful_deployments) > 0 }}
@@ -633,22 +476,22 @@ jobs:
           ALEPH_VM_API_HOST: https://api2.aleph.im
           ALEPH_VM_CHANNEL: TEST
           ALEPH_VM_RETENTION_KEEP_COUNT: ${{ inputs.retain_successful_deployments }}
-          ALEPH_VM_RETENTION_EXTRA_FORGET_HASHES_JSON: ${{ steps.repin_site.outputs.item_hash != '' && format('["{0}"]', steps.pin_site.outputs.item_hash) || '[]' }}
+          ALEPH_VM_RETENTION_EXTRA_FORGET_HASHES_JSON: ${{ steps.redeploy_site.outputs.item_hash != '' && format('["{0}"]', steps.deploy_site.outputs.item_hash) || '[]' }}
           ALEPH_VM_RETENTION_CURRENT_RECORD_JSON: >-
-            {"instance_item_hash":"${{ steps.deploy_vm.outputs.instance_item_hash }}","rootfs_item_hash":"${{ steps.collect_rootfs_outputs.outputs.rootfs_item_hash }}","rootfs_cid":"${{ steps.collect_rootfs_outputs.outputs.rootfs_cid }}","site_item_hash":"${{ steps.repin_site.outputs.item_hash != '' && steps.repin_site.outputs.item_hash || steps.pin_site.outputs.item_hash }}","site_url":"${{ steps.redeploy_site.outputs.url != '' && steps.redeploy_site.outputs.url || steps.deploy_site.outputs.url }}","relay_peer_id":"${{ steps.deploy_vm.outputs.relay_peer_id }}","rootfs_version":"${{ env.ROOTFS_VERSION }}","vm_name":"${{ inputs.vm_name }}","deployed_at":"${{ github.run_id }}-${{ github.run_attempt }}"}
+            {"instance_item_hash":"${{ steps.deploy_vm.outputs.instance_item_hash }}","rootfs_item_hash":"${{ steps.collect_rootfs_outputs.outputs.rootfs_item_hash }}","rootfs_cid":"${{ steps.collect_rootfs_outputs.outputs.rootfs_cid }}","site_item_hash":"${{ steps.redeploy_site.outputs.item_hash != '' && steps.redeploy_site.outputs.item_hash || steps.deploy_site.outputs.item_hash }}","site_url":"${{ steps.redeploy_site.outputs.url != '' && steps.redeploy_site.outputs.url || steps.deploy_site.outputs.url }}","relay_peer_id":"${{ steps.deploy_vm.outputs.relay_peer_id }}","rootfs_version":"${{ env.ROOTFS_VERSION }}","vm_name":"${{ inputs.vm_name }}","deployed_at":"${{ github.run_id }}-${{ github.run_attempt }}"}
         run: |
           set -euo pipefail
           workdir="$(mktemp -d)"
           cd "${workdir}"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.2
+          npm install --no-save --no-package-lock @le-space/node@0.1.12
           node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"
 
       - name: Export reusable workflow outputs
         if: ${{ always() }}
         id: export_outputs
         run: |
-          final_site_url="${FINAL_URL:-${initial_site_url}}"
+          final_site_url='${{ steps.redeploy_site.outputs.url != '' && steps.redeploy_site.outputs.url || steps.deploy_site.outputs.url }}'
           final_manifest_latest_url="${initial_manifest_latest_url}"
           final_manifest_versioned_url="${initial_manifest_versioned_url}"
 
@@ -719,8 +562,8 @@ jobs:
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Builder path: \`@le-space/node@0.1.11 -> runRootfsMode(...)\`"
-            echo "- Shared tooling source: \`npm:@le-space/node@0.1.11\`"
+            echo "- Builder path: \`@le-space/node@0.1.12 -> runRootfsMode(...), runSiteMode(...)\`"
+            echo "- Shared tooling source: \`npm:@le-space/node@0.1.12\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"
