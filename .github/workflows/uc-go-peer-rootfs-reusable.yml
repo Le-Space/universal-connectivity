@@ -307,7 +307,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          npm install --no-save --no-package-lock @le-space/node@0.1.13
           node --input-type=module -e "import { runRootfsMode } from '@le-space/node'; await runRootfsMode(process.env);"
 
       - name: Install js-peer publish helpers
@@ -334,7 +334,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          npm install --no-save --no-package-lock @le-space/node@0.1.13
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Link production domain on Aleph as IPFS
@@ -417,7 +417,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          npm install --no-save --no-package-lock @le-space/node@0.1.13
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Prepare js-peer relay bootstrap env
@@ -430,7 +430,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          npm install --no-save --no-package-lock @le-space/node@0.1.13
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Rebuild js-peer site with deployed relay bootstrap addrs
@@ -452,7 +452,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          npm install --no-save --no-package-lock @le-space/node@0.1.13
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Relink production domain to republished js-peer site
@@ -484,7 +484,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "${workdir}"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.12
+          npm install --no-save --no-package-lock @le-space/node@0.1.13
           node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"
 
       - name: Export reusable workflow outputs
@@ -562,8 +562,8 @@ jobs:
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Builder path: \`@le-space/node@0.1.12 -> runRootfsMode(...), runSiteMode(...)\`"
-            echo "- Shared tooling source: \`npm:@le-space/node@0.1.12\`"
+            echo "- Builder path: \`@le-space/node@0.1.13 -> runRootfsMode(...), runSiteMode(...)\`"
+            echo "- Shared tooling source: \`npm:@le-space/node@0.1.13\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"
