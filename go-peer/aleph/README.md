@@ -301,6 +301,7 @@ flowchart TD
 - `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-setup-server.py`
   Temporary HTTP setup endpoint that accepts Aleph port-mapping information.
 - `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-autotls-refresh.py`
+  The companion `uc-go-peer-autotls-refresh.service` now retries automatically every 12 hours after a failed 15-minute wait window, so a late AutoTLS success can still update announce addresses without manual intervention.
   AutoTLS reachability wait, libp2p.direct certificate acquisition, and restart after secure WSS hostnames become available.
 - `universal-connectivity/go-peer/aleph/rootfs/uc-go-peer-describe.py`
   Guest-side metadata extractor used after configuration to report the relay peer ID plus probe, browser bootstrap, WebTransport, and webrtc-direct multiaddrs.
