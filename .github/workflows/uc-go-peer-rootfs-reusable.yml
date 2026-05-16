@@ -16,6 +16,16 @@ on:
         required: false
         default: ''
         type: string
+      shared_tooling_repository:
+        description: Repository that contains the shared Aleph tooling source
+        required: false
+        default: NiKrause/shared-aleph-tooling
+        type: string
+      shared_tooling_ref:
+        description: Ref of the shared Aleph tooling repository to use
+        required: false
+        default: main
+        type: string
       aleph_domain:
         description: Optional production domain for js-peer manifest publishing
         required: false
@@ -193,6 +203,29 @@ jobs:
         with:
           path: universal-connectivity
 
+      - name: Checkout shared Aleph tooling
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.shared_tooling_repository }}
+          ref: ${{ inputs.shared_tooling_ref }}
+          path: shared-aleph-tooling
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: pnpm
+          cache-dependency-path: shared-aleph-tooling/pnpm-lock.yaml
+
+      - name: Install shared tooling workspace dependencies
+        working-directory: shared-aleph-tooling
+        run: pnpm install --frozen-lockfile
+
       - name: Load uc-go-peer rootfs profile
         working-directory: universal-connectivity
         run: |
@@ -288,19 +321,20 @@ jobs:
           print(f"Wrote Aleph config to {config_path}")
           PY
 
-      - name: Build uc-go-peer rootfs
-        working-directory: universal-connectivity/go-peer/aleph
+      - name: Build uc-go-peer rootfs through shared runner
+        id: build_rootfs
+        working-directory: shared-aleph-tooling
         env:
-          ROOTFS_CONTRACT_FILE: ${{ env.ROOTFS_CONTRACT_FILE }}
-          SKIP_UPLOAD: ${{ inputs.publish && '0' || '1' }}
+          ALEPH_VM_MODE: rootfs-publish
+          ALEPH_ROOTFS_PROJECT_DIR: ${{ github.workspace }}/universal-connectivity
+          ALEPH_ROOTFS_CONTRACT_PATH: ${{ env.ROOTFS_CONTRACT_FILE }}
+          ALEPH_ROOTFS_REFERENCE_ROOTFS_DIR: ${{ github.workspace }}/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs
+          ALEPH_ROOTFS_VERSION: ${{ env.ROOTFS_VERSION }}
+          ALEPH_ROOTFS_SKIP_UPLOAD: ${{ inputs.publish && 'false' || 'true' }}
+          ALEPH_ROOTFS_HAS_VIRT_CUSTOMIZE: 'true'
+          ALEPH_ROOTFS_HAS_DOCKER: 'false'
         run: |
-          bash rootfs/build-rootfs.sh
-
-      - name: Set up Node for js-peer manifest publish
-        if: ${{ inputs.publish }}
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24.x'
+          node ./packages/node/src/rootfs-runner.ts
 
       - name: Install js-peer publish helpers
         if: ${{ inputs.publish }}
@@ -397,19 +431,11 @@ jobs:
         id: collect_rootfs_outputs
         working-directory: universal-connectivity/go-peer/aleph
         run: |
-          rootfs_cid=''
-          rootfs_item_hash=''
+          rootfs_cid='${{ steps.build_rootfs.outputs.rootfs_cid }}'
+          rootfs_item_hash='${{ steps.build_rootfs.outputs.rootfs_item_hash }}'
           site_url="${URL:-}"
           manifest_latest_url=''
           manifest_versioned_url=''
-
-          if [[ -f dist-rootfs/ipfs-add-response.jsonl ]]; then
-            rootfs_cid="$(python3 -c 'import json; from pathlib import Path; lines = [line for line in Path("dist-rootfs/ipfs-add-response.jsonl").read_text().splitlines() if line.strip()]; print(json.loads(lines[-1]).get("Hash", "") if lines else "")')"
-          fi
-
-          if [[ -f dist-rootfs/store-message.json ]]; then
-            rootfs_item_hash="$(python3 -c 'import json; from pathlib import Path; payload = json.loads(Path("dist-rootfs/store-message.json").read_text()); print(payload.get("item_hash", ""))')"
-          fi
 
           if [[ "${{ inputs.publish }}" == "true" ]]; then
             if [[ -n "${{ inputs.aleph_domain }}" && "${{ github.ref }}" == "refs/heads/main" ]]; then
@@ -422,7 +448,7 @@ jobs:
           fi
 
           {
-            echo "rootfs_version=${ROOTFS_VERSION}"
+            echo "rootfs_version=${{ steps.build_rootfs.outputs.rootfs_version }}"
             echo "rootfs_cid=${rootfs_cid}"
             echo "rootfs_item_hash=${rootfs_item_hash}"
             echo "manifest_latest_url=${manifest_latest_url}"
@@ -719,7 +745,8 @@ jobs:
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Builder path: \`go-peer/aleph/rootfs\`"
+            echo "- Builder path: \`shared-aleph-tooling/packages/node/src/rootfs-runner.ts\`"
+            echo "- Shared tooling source: \`${{ inputs.shared_tooling_repository }}@${{ inputs.shared_tooling_ref }}\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"
