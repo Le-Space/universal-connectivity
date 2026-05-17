@@ -307,7 +307,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.13
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
           node --input-type=module -e "import { runRootfsMode } from '@le-space/node'; await runRootfsMode(process.env);"
 
       - name: Install js-peer publish helpers
@@ -334,20 +334,26 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.13
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
-      - name: Link production domain on Aleph as IPFS
+      - name: Link production domain through shared runner
         if: ${{ inputs.publish && github.ref == 'refs/heads/main' && inputs.aleph_domain != '' }}
+        env:
+          ALEPH_VM_MODE: site-domain-link
+          ALEPH_SITE_PROJECT_DIR: ${{ github.workspace }}/universal-connectivity
+          ALEPH_SITE_DOMAIN: ${{ inputs.aleph_domain }}
+          ALEPH_SITE_ITEM_HASH: ${{ steps.deploy_site.outputs.item_hash }}
         run: |
           if [[ -z "${{ steps.deploy_site.outputs.item_hash }}" ]]; then
             echo "deploy_site.outputs.item_hash is missing after js-peer deployment"
             exit 1
           fi
-          mkdir -p /home/runner/.aleph-im/private-keys
-          echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
-          aleph domain detach "${{ inputs.aleph_domain }}" --no-ask || true
-          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "${{ steps.deploy_site.outputs.item_hash }}" --catch-all-path /index.html --no-ask
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Collect rootfs publish outputs
         id: collect_rootfs_outputs
@@ -417,7 +423,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.13
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Prepare js-peer relay bootstrap env
@@ -430,7 +436,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.13
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Rebuild js-peer site with deployed relay bootstrap addrs
@@ -452,20 +458,26 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.13
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
-      - name: Relink production domain to republished js-peer site
+      - name: Relink production domain through shared runner
         if: ${{ inputs.publish && inputs.deploy_vm && steps.js_peer_bootstrap.outputs.available == 'true' && github.ref == 'refs/heads/main' && inputs.aleph_domain != '' }}
+        env:
+          ALEPH_VM_MODE: site-domain-link
+          ALEPH_SITE_PROJECT_DIR: ${{ github.workspace }}/universal-connectivity
+          ALEPH_SITE_DOMAIN: ${{ inputs.aleph_domain }}
+          ALEPH_SITE_ITEM_HASH: ${{ steps.redeploy_site.outputs.item_hash }}
         run: |
           if [[ -z "${{ steps.redeploy_site.outputs.item_hash }}" ]]; then
             echo "redeploy_site.outputs.item_hash is missing after js-peer republish"
             exit 1
           fi
-          mkdir -p /home/runner/.aleph-im/private-keys
-          echo "$ALEPH_PRIVATE_KEY" | xxd -r -p > /home/runner/.aleph-im/private-keys/ethereum.key
-          aleph domain detach "${{ inputs.aleph_domain }}" --no-ask || true
-          aleph domain attach "${{ inputs.aleph_domain }}" --item-hash "${{ steps.redeploy_site.outputs.item_hash }}" --catch-all-path /index.html --no-ask
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Retain latest successful deployments
         if: ${{ inputs.publish && inputs.deploy_vm && fromJSON(inputs.retain_successful_deployments) > 0 }}
@@ -484,7 +496,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "${workdir}"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.13
+          npm install --no-save --no-package-lock @le-space/node@0.1.14
           node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"
 
       - name: Export reusable workflow outputs
@@ -562,8 +574,8 @@ jobs:
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Builder path: \`@le-space/node@0.1.13 -> runRootfsMode(...), runSiteMode(...)\`"
-            echo "- Shared tooling source: \`npm:@le-space/node@0.1.13\`"
+            echo "- Builder path: \`@le-space/node@0.1.14 -> runRootfsMode(...), runSiteMode(...)\`"
+            echo "- Shared tooling source: \`npm:@le-space/node@0.1.14\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"
