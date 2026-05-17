@@ -160,18 +160,7 @@ permissions:
   contents: read
 
 jobs:
-  shared-rootfs:
-    uses: NiKrause/shared-aleph-tooling/.github/workflows/aleph-rootfs-build-publish-deploy.yml@main
-    with:
-      profile: uc-go-peer
-      publish: ${{ inputs.publish }}
-      rootfs_version: ${{ inputs.rootfs_version }}
-      rootfs_contract_path: go-peer/aleph/root-profiles/uc-go-peer.json
-    secrets:
-      ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
-
   build-rootfs:
-    needs: shared-rootfs
     runs-on: ubuntu-24.04
     env:
       ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
@@ -260,25 +249,66 @@ jobs:
             exit 1
           fi
 
-      - name: Restore rootfs manifest outputs from shared workflow
-        id: restore_rootfs_outputs
-        shell: bash
-        env:
-          ROOTFS_MANIFEST_JSON: ${{ needs.shared-rootfs.outputs.rootfs_manifest_json }}
+      - name: Install rootfs build dependencies
         run: |
-          mkdir -p universal-connectivity/go-peer/aleph/dist-rootfs
-          mkdir -p universal-connectivity/js-peer/public/rootfs/uc-go-peer
-          manifest_path="universal-connectivity/go-peer/aleph/dist-rootfs/rootfs-manifest.json"
-          latest_path="universal-connectivity/js-peer/public/rootfs/uc-go-peer/latest.json"
-          versioned_path="universal-connectivity/js-peer/public/rootfs/uc-go-peer/${{ needs.shared-rootfs.outputs.rootfs_version }}.json"
-          printf '%s\n' "${ROOTFS_MANIFEST_JSON}" > "${manifest_path}"
-          cp "${manifest_path}" "${latest_path}"
-          cp "${manifest_path}" "${versioned_path}"
-          {
-            echo "manifest_path=${manifest_path}"
-            echo "latest_path=${latest_path}"
-            echo "versioned_path=${versioned_path}"
-          } >> "$GITHUB_OUTPUT"
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            libguestfs-tools \
+            libsecp256k1-dev \
+            python3 \
+            python3-pip \
+            qemu-utils \
+            squashfs-tools \
+            tar
+
+      - name: Install aleph client
+        if: ${{ inputs.publish }}
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install aleph-client
+          python3 -m pip install pycares==4.11.0
+
+      - name: Prepare Aleph account
+        if: ${{ inputs.publish }}
+        run: |
+          mkdir -p "$HOME/.aleph-im/private-keys"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          private_key = os.environ["ALEPH_PRIVATE_KEY"].strip()
+          if private_key.startswith("0x"):
+              private_key = private_key[2:]
+
+          key_bytes = bytes.fromhex(private_key)
+          config_home = Path.home() / ".aleph-im"
+          key_path = config_home / "private-keys" / "aleph-vm.key"
+          config_path = config_home / "config.json"
+
+          key_path.write_bytes(key_bytes)
+          config_path.write_text(json.dumps({"chain": "ETH", "path": str(key_path)}))
+          print(f"Wrote Aleph key to {key_path}")
+          print(f"Wrote Aleph config to {config_path}")
+          PY
+
+      - name: Build uc-go-peer rootfs through shared runner
+        id: build_rootfs
+        env:
+          ALEPH_VM_MODE: rootfs-publish
+          ALEPH_ROOTFS_PROJECT_DIR: ${{ github.workspace }}/universal-connectivity
+          ALEPH_ROOTFS_CONTRACT_PATH: ${{ env.ROOTFS_CONTRACT_FILE }}
+          ALEPH_ROOTFS_VERSION: ${{ env.ROOTFS_VERSION }}
+          ALEPH_ROOTFS_SKIP_UPLOAD: ${{ inputs.publish && 'false' || 'true' }}
+          ALEPH_ROOTFS_HAS_VIRT_CUSTOMIZE: 'true'
+          ALEPH_ROOTFS_HAS_DOCKER: 'false'
+        run: |
+          workdir="$(mktemp -d)"
+          cd "$workdir"
+          npm init -y >/dev/null 2>&1
+          npm install --no-save --no-package-lock @le-space/node@0.1.13
+          node --input-type=module -e "import { runRootfsMode } from '@le-space/node'; await runRootfsMode(process.env);"
 
       - name: Install js-peer publish helpers
         if: ${{ inputs.publish }}
@@ -323,8 +353,8 @@ jobs:
         id: collect_rootfs_outputs
         working-directory: universal-connectivity/go-peer/aleph
         run: |
-          rootfs_cid='${{ needs.shared-rootfs.outputs.rootfs_cid }}'
-          rootfs_item_hash='${{ needs.shared-rootfs.outputs.rootfs_item_hash }}'
+          rootfs_cid='${{ steps.build_rootfs.outputs.rootfs_cid }}'
+          rootfs_item_hash='${{ steps.build_rootfs.outputs.rootfs_item_hash }}'
           site_url='${{ steps.deploy_site.outputs.url }}'
           manifest_latest_url=''
           manifest_versioned_url=''
@@ -340,7 +370,7 @@ jobs:
           fi
 
           {
-            echo "rootfs_version=${{ needs.shared-rootfs.outputs.rootfs_version }}"
+            echo "rootfs_version=${{ steps.build_rootfs.outputs.rootfs_version }}"
             echo "rootfs_cid=${rootfs_cid}"
             echo "rootfs_item_hash=${rootfs_item_hash}"
             echo "manifest_latest_url=${manifest_latest_url}"
@@ -532,8 +562,8 @@ jobs:
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Rootfs builder path: \`NiKrause/shared-aleph-tooling/.github/workflows/aleph-rootfs-build-publish-deploy.yml@main\`"
-            echo "- Site/deploy helper path: \`npm:@le-space/node@0.1.13 -> runSiteMode(...), runActionMode(...)\`"
+            echo "- Builder path: \`@le-space/node@0.1.13 -> runRootfsMode(...), runSiteMode(...)\`"
+            echo "- Shared tooling source: \`npm:@le-space/node@0.1.13\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"
