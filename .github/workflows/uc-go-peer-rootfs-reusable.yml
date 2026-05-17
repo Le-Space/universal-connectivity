@@ -2,6 +2,7 @@ name: uc-go-peer rootfs reusable
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SHARED_ALEPH_NODE_VERSION: 0.1.14
 
 on:
   workflow_call:
@@ -307,7 +308,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runRootfsMode } from '@le-space/node'; await runRootfsMode(process.env);"
 
       - name: Install js-peer publish helpers
@@ -334,7 +335,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Link production domain through shared runner
@@ -352,7 +353,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Collect rootfs publish outputs
@@ -423,7 +424,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Prepare js-peer relay bootstrap env
@@ -436,7 +437,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Rebuild js-peer site with deployed relay bootstrap addrs
@@ -458,7 +459,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Relink production domain through shared runner
@@ -476,7 +477,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "$workdir"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runSiteMode } from '@le-space/node'; await runSiteMode(process.env);"
 
       - name: Retain latest successful deployments
@@ -496,7 +497,7 @@ jobs:
           workdir="$(mktemp -d)"
           cd "${workdir}"
           npm init -y >/dev/null 2>&1
-          npm install --no-save --no-package-lock @le-space/node@0.1.14
+          npm install --no-save --no-package-lock @le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}
           node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"
 
       - name: Export reusable workflow outputs
@@ -574,8 +575,8 @@ jobs:
           {
             echo "## uc-go-peer rootfs build"
             echo
-            echo "- Builder path: \`@le-space/node@0.1.14 -> runRootfsMode(...), runSiteMode(...)\`"
-            echo "- Shared tooling source: \`npm:@le-space/node@0.1.14\`"
+            echo "- Builder path: \`@le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }} -> runRootfsMode(...), runSiteMode(...)\`"
+            echo "- Shared tooling source: \`npm:@le-space/node@${{ env.SHARED_ALEPH_NODE_VERSION }}\`"
             echo "- Rootfs profile: \`${ROOTFS_PROFILE}\`"
             echo "- Install mode: \`${ROOTFS_INSTALL_MODE}\`"
             echo "- Guest executable: \`${ROOTFS_BINARY_PATH}\`"

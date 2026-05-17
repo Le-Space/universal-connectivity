@@ -126,7 +126,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     A[Workflow step uses .github/actions/aleph-vm-deploy] --> B[setup-node 24]
-    B --> C[npm install @le-space/node@0.1.0 in temp workspace]
+    B --> C[npm install @le-space/node@0.1.14 in temp workspace]
     C --> D[node runActionMode from published package]
 
     D --> E{mode}
@@ -326,7 +326,7 @@ keeping a local Aleph VM SDK copy.
   guest configuration
   retention cleanup
 - `.github/actions/aleph-vm-deploy/action.yml` (thin UC wrapper around the published shared Aleph tooling package path)
-  Composite GitHub Action wrapper that installs `@le-space/node@0.1.0` and returns:
+  Composite GitHub Action wrapper that installs `@le-space/node@0.1.14` by default and returns:
   host IPv4, IPv6, proxy URL, mapped ports JSON, a ready-to-use SSH command,
   setup-endpoint reachability, and post-configure verification results.
 

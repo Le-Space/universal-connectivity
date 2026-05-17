@@ -127,6 +127,10 @@ inputs:
     description: Verify mapped TCP ports and the HTTPS proxy after guest configuration
     required: false
     default: 'true'
+  shared_package_version:
+    description: Published @le-space/node version to install for the shared deploy runner
+    required: false
+    default: '0.1.14'
   required_ports_json:
     description: JSON array of required internal port-forward declarations
     required: false
@@ -257,5 +261,5 @@ runs:
         workdir="$(mktemp -d)"
         cd "${workdir}"
         npm init -y >/dev/null 2>&1
-        npm install --no-save --no-package-lock @le-space/node@0.1.2
+        npm install --no-save --no-package-lock @le-space/node@${{ inputs.shared_package_version }}
         node --input-type=module -e "import { runActionMode } from '@le-space/node'; await runActionMode(process.env);"
