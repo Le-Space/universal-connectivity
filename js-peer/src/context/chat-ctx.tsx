@@ -10,9 +10,7 @@ import {
 } from '@/lib/constants'
 import { toString as uint8ArrayToString } from 'uint8arrays/to-string'
 import { fromString as uint8ArrayFromString } from 'uint8arrays/from-string'
-import { pipe } from 'it-pipe'
-import map from 'it-map'
-import * as lp from 'it-length-prefixed'
+import { lpStream } from '@libp2p/utils'
 import { forComponent } from '@/lib/logger'
 import { DirectMessageEvent, directMessageEvent } from '@/lib/direct-message'
 
@@ -131,29 +129,23 @@ export const ChatProvider = ({ children }: any) => {
 
     try {
       const stream = await libp2p.dialProtocol(senderPeerId, FILE_EXCHANGE_PROTOCOL)
-      await pipe(
-        [uint8ArrayFromString(fileId)],
-        (source) => lp.encode(source),
-        stream,
-        (source) => lp.decode(source),
-        async function (source) {
-          for await (const data of source) {
-            const body: Uint8Array = data.subarray()
-            log(`chat file message request_response: response received: size:${body.length}`)
+      // v3: one request, one response, read and written imperatively.
+      const fileStream = lpStream(stream)
+      await fileStream.write(uint8ArrayFromString(fileId))
+      const body: Uint8Array = (await fileStream.read()).subarray()
+      log(`chat file message request_response: response received: size:${body.length}`)
 
-            const msg: ChatMessage = {
-              msgId: crypto.randomUUID(),
-              msg: newChatFileMessage(fileId, body),
-              fileObjectUrl: window.URL.createObjectURL(new Blob([body])),
-              peerId: senderPeerId.toString(),
-              from: 'other',
-              read: false,
-              receivedAt: Date.now(),
-            }
-            setMessageHistory([...messageHistory, msg])
-          }
-        },
-      )
+      const msg: ChatMessage = {
+        msgId: crypto.randomUUID(),
+        msg: newChatFileMessage(fileId, body),
+        fileObjectUrl: window.URL.createObjectURL(new Blob([body])),
+        peerId: senderPeerId.toString(),
+        from: 'other',
+        read: false,
+        receivedAt: Date.now(),
+      }
+      setMessageHistory([...messageHistory, msg])
+      await stream.close()
     } catch (e) {
       console.error(e)
     }
@@ -195,19 +187,14 @@ export const ChatProvider = ({ children }: any) => {
   useEffect(() => {
     libp2p.services.pubsub.addEventListener('message', messageCB)
 
-    libp2p.handle(FILE_EXCHANGE_PROTOCOL, ({ stream }) => {
-      pipe(
-        stream.source,
-        (source) => lp.decode(source),
-        (source) =>
-          map(source, async (msg) => {
-            const fileId = uint8ArrayToString(msg.subarray())
-            const file = files.get(fileId)!
-            return file.body
-          }),
-        (source) => lp.encode(source),
-        stream.sink,
-      )
+    // v3: handlers take (stream, connection), and streams are read and
+    // written directly instead of piped through iterables.
+    libp2p.handle(FILE_EXCHANGE_PROTOCOL, async (stream) => {
+      const fileStream = lpStream(stream)
+      const fileId = uint8ArrayToString((await fileStream.read()).subarray())
+      const file = files.get(fileId)!
+      await fileStream.write(file.body)
+      await stream.close()
     })
 
     return () => {

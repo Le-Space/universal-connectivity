@@ -1,7 +1,7 @@
 import type { Libp2pType } from '@/context/ctx'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { v4 as uuidv4 } from 'uuid'
-import { pbStream } from 'it-protobuf-stream'
+import { pbStream } from '@libp2p/utils'
 import { ExtensionManager } from './extension-manager'
 import { ext } from './protobuf/extension'
 import { getExtensionProtocol } from './extension-types'
