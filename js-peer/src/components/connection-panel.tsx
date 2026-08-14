@@ -1,3 +1,4 @@
+import { protoNames, nodeAddress } from '@/lib/multiaddr-compat'
 import { useLibp2pContext } from '@/context/ctx'
 import type { PeerUpdate, Connection } from '@libp2p/interface'
 import { useCallback, useEffect, useState } from 'react'
@@ -35,7 +36,7 @@ export default function ConnectionPanel({ isOpen, onClose }: { isOpen: boolean; 
 
     const derived = new Map<string, Multiaddr>()
     for (const connection of libp2p.getConnections()) {
-      const protos = connection.remoteAddr.protoNames()
+      const protos = protoNames(connection.remoteAddr)
       if (!protos.includes('p2p') || protos.includes('p2p-circuit')) {
         continue
       }

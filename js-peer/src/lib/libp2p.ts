@@ -1,3 +1,4 @@
+import { protoNames, nodeAddress } from './multiaddr-compat'
 import {
   createDelegatedRoutingV1HttpApiClient,
   type DelegatedRoutingV1HttpApiClient,
@@ -9,8 +10,9 @@ import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { multiaddr, type Multiaddr } from '@multiformats/multiaddr'
 import { sha256 } from 'multiformats/hashes/sha2'
-import type { Connection, Libp2p, Message, PeerId, SignedMessage } from '@libp2p/interface'
-import { gossipsub } from '@chainsafe/libp2p-gossipsub'
+import type { Connection, Libp2p, PeerId } from '@libp2p/interface'
+import type { Message, SignedMessage } from '@libp2p/gossipsub'
+import { gossipsub } from '@libp2p/gossipsub'
 import { webSockets } from '@libp2p/websockets'
 import { webTransport } from '@libp2p/webtransport'
 import { webRTC, webRTCDirect } from '@libp2p/webrtc'
@@ -143,7 +145,7 @@ export async function msgIdFnStrictNoSign(msg: Message): Promise<Uint8Array> {
 }
 
 async function dialWebRTCMaddrs(libp2p: Libp2p, multiaddrs: Multiaddr[]): Promise<void> {
-  const webRtcMaddrs = multiaddrs.filter((maddr) => maddr.protoNames().includes('webrtc'))
+  const webRtcMaddrs = multiaddrs.filter((maddr) => protoNames(maddr).includes('webrtc'))
   log('dialling WebRTC multiaddrs: %o', webRtcMaddrs)
 
   for (const addr of webRtcMaddrs) {
@@ -198,7 +200,7 @@ async function getRelayBootstrapAddrs(client: DelegatedRoutingV1HttpApiClient): 
 const getRelayBootstrapAddr = (maddr: Multiaddr, peer: PeerId): string => `${maddr.toString()}/p2p/${peer.toString()}`
 
 function isBrowserDialableBootstrapAddr(maddr: Multiaddr): boolean {
-  const protos = maddr.protoNames()
+  const protos = protoNames(maddr)
   const isSecureWebSocketAddr = protos.includes('tls') && protos.includes('ws')
   const isWebTransportAddr = protos.includes('webtransport')
 
@@ -207,7 +209,7 @@ function isBrowserDialableBootstrapAddr(maddr: Multiaddr): boolean {
   }
 
   try {
-    const host = maddr.nodeAddress().address
+    const host = nodeAddress(maddr).address
     return host !== '127.0.0.1' && host !== '::1' && host !== '0.0.0.0' && host !== '::'
   } catch {
     return true
@@ -217,5 +219,5 @@ function isBrowserDialableBootstrapAddr(maddr: Multiaddr): boolean {
 export const getFormattedConnections = (connections: Connection[]) =>
   connections.map((conn) => ({
     peerId: conn.remotePeer,
-    protocols: [...new Set(conn.remoteAddr.protoNames())],
+    protocols: [...new Set(protoNames(conn.remoteAddr))],
   }))

@@ -1,7 +1,8 @@
 import { useLibp2pContext } from '@/context/ctx'
 import { CHAT_TOPIC } from '@/lib/constants'
 import React, { useEffect, useState } from 'react'
-import type { PeerId, Message } from '@libp2p/interface'
+import type { PeerId } from '@libp2p/interface'
+import type { Message } from '@libp2p/gossipsub'
 import { PeerWrapper } from './peer'
 import { peerIdFromString } from '@libp2p/peer-id'
 

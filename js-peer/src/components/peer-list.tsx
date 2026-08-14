@@ -1,3 +1,4 @@
+import { protoNames, nodeAddress } from '@/lib/multiaddr-compat'
 import { XCircleIcon } from '@heroicons/react/24/solid'
 import type { PeerId, Connection } from '@libp2p/interface'
 import { Badge } from './badge'
@@ -33,8 +34,8 @@ function Peer({ connection }: PeerProps) {
 
   let ipAddr
   try {
-    const nodeAddr = connection.remoteAddr?.nodeAddress()
-    ipAddr = `${nodeAddr.address}:${nodeAddr.port} |`
+    const nodeAddr = connection.remoteAddr != null ? nodeAddress(connection.remoteAddr) : null
+    ipAddr = nodeAddr != null ? `${nodeAddr.address}:${nodeAddr.port} |` : null
   } catch (e) {
     ipAddr = null
   }
@@ -51,10 +52,10 @@ function Peer({ connection }: PeerProps) {
         <div className="min-w-0 flex-auto">
           <p className="text-sm font-semibold leading-6 text-gray-900">
             {connection.remotePeer.toString()}{' '}
-            {connection.remoteAddr.protoNames().includes('webrtc') ? <Badge color="indigo">P2P Browser</Badge> : null}
+            {protoNames(connection.remoteAddr).includes('webrtc') ? <Badge color="indigo">P2P Browser</Badge> : null}
           </p>
           <p className="mt-1 truncate text-xs leading-5 text-gray-500">
-            {ipAddr} {connection.remoteAddr.protoNames().join(', ')}
+            {ipAddr} {protoNames(connection.remoteAddr).join(', ')}
           </p>
         </div>
       </div>

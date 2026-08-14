@@ -1,5 +1,6 @@
 import { useLibp2pContext } from '@/context/ctx'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import type { PeerId } from '@libp2p/interface'
 import { CHAT_FILE_TOPIC, CHAT_TOPIC } from '@/lib/constants'
 import { createIcon } from '@download/blockies'
 import { ChatFile, ChatMessage, useChatContext } from '../context/chat-ctx'
@@ -274,7 +275,7 @@ export default function ChatContainer() {
       const res = await libp2p.services.pubsub.publish(CHAT_TOPIC, new TextEncoder().encode(input))
       console.log(
         'sent message to: ',
-        res.recipients.map((peerId) => peerId.toString()),
+        res.recipients.map((peerId: PeerId) => peerId.toString()),
       )
 
       setMessageHistory([
@@ -324,7 +325,7 @@ export default function ChatContainer() {
       const res = await libp2p.services.pubsub.publish(CHAT_FILE_TOPIC, new TextEncoder().encode(file.id))
       console.log(
         'sent file to: ',
-        res.recipients.map((peerId) => peerId.toString()),
+        res.recipients.map((peerId: PeerId) => peerId.toString()),
       )
 
       const msg: ChatMessage = {

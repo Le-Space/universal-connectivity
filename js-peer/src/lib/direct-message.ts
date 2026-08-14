@@ -4,7 +4,7 @@ import { serviceCapabilities, serviceDependencies } from '@libp2p/interface'
 import type { ConnectionManager } from '@libp2p/interface-internal'
 import type { Registrar } from '@libp2p/interface-internal'
 import { dm } from '@/lib/protobuf/direct-message'
-import { pbStream } from 'it-protobuf-stream'
+import { pbStream } from '@libp2p/utils'
 
 export const dmClientVersion = '0.0.1'
 export const directMessageEvent = 'message'
@@ -55,7 +55,7 @@ export class DirectMessage extends TypedEventEmitter<DirectMessageEvents> implem
 
   async start(): Promise<void> {
     // Register protocol handler FIRST, before topology
-    await this.components.registrar.handle(DIRECT_MESSAGE_PROTOCOL, async ({ stream, connection }) => {
+    await this.components.registrar.handle(DIRECT_MESSAGE_PROTOCOL, async (stream, connection) => {
       try {
         console.debug('[DM] handler: incoming stream from', connection.remotePeer.toString().slice(-8))
       } catch {}

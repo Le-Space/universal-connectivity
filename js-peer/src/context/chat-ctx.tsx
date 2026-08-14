@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useLibp2pContext } from './ctx'
-import type { Message } from '@libp2p/interface'
+import type { Message } from '@libp2p/gossipsub'
 import {
   CHAT_FILE_TOPIC,
   CHAT_TOPIC,
