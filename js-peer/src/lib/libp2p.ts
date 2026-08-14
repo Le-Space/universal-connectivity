@@ -96,6 +96,10 @@ export async function startLibp2p(): Promise<Libp2pType> {
       // without identify-push — and this node could not even receive one,
       // because /ipfs/id/push needs the service on both sides. The spreadsheet
       // that offers the extension runs identifyPush; this side did not.
+      //
+      // This closes a real gap, but it is NOT the fix for extensions going
+      // unseen: measured against a relay and both apps running locally, it
+      // changes nothing. See the commit that added this note.
       identifyPush: identifyPush(),
       directMessage: directMessage(),
       ping: ping(),
