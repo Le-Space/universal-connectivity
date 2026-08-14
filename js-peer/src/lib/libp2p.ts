@@ -3,7 +3,7 @@ import {
   type DelegatedRoutingV1HttpApiClient,
 } from '@helia/delegated-routing-v1-http-api-client'
 import { createLibp2p } from 'libp2p'
-import { identify } from '@libp2p/identify'
+import { identify, identifyPush } from '@libp2p/identify'
 import { peerIdFromString } from '@libp2p/peer-id'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
@@ -91,6 +91,12 @@ export async function startLibp2p(): Promise<Libp2pType> {
       }),
       delegatedRouting: () => delegatedClient,
       identify: identify(),
+      // Extension discovery reads the protocol list identify exchanges, so a
+      // protocol registered after a connection is already open stays invisible
+      // without identify-push — and this node could not even receive one,
+      // because /ipfs/id/push needs the service on both sides. The spreadsheet
+      // that offers the extension runs identifyPush; this side did not.
+      identifyPush: identifyPush(),
       directMessage: directMessage(),
       ping: ping(),
     },
