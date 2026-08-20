@@ -1,15 +1,12 @@
-import {
-  createDelegatedRoutingV1HttpApiClient,
-  type DelegatedRoutingV1HttpApiClient,
-} from '@helia/delegated-routing-v1-http-api-client'
+import { createDelegatedRoutingV1HttpApiClient } from '@helia/delegated-routing-v1-http-api-client'
 import { createLibp2p } from 'libp2p'
-import { identify } from '@libp2p/identify'
-import { peerIdFromString } from '@libp2p/peer-id'
+import { FaultTolerance } from '@libp2p/interface'
+import { identify, identifyPush } from '@libp2p/identify'
 import { noise } from '@chainsafe/libp2p-noise'
 import { yamux } from '@chainsafe/libp2p-yamux'
 import { multiaddr, type Multiaddr } from '@multiformats/multiaddr'
 import { sha256 } from 'multiformats/hashes/sha2'
-import type { Connection, Libp2p, Message, PeerId, SignedMessage } from '@libp2p/interface'
+import type { Connection, Libp2p, Message, SignedMessage } from '@libp2p/interface'
 import { gossipsub } from '@chainsafe/libp2p-gossipsub'
 import { webSockets } from '@libp2p/websockets'
 import { webTransport } from '@libp2p/webtransport'
@@ -17,8 +14,13 @@ import { webRTC, webRTCDirect } from '@libp2p/webrtc'
 import { circuitRelayTransport } from '@libp2p/circuit-relay-v2'
 import { pubsubPeerDiscovery } from '@libp2p/pubsub-peer-discovery'
 import { ping } from '@libp2p/ping'
-import { BOOTSTRAP_PEER_IDS, CHAT_FILE_TOPIC, CHAT_TOPIC, PUBSUB_PEER_DISCOVERY } from './constants'
-import first from 'it-first'
+import { CHAT_FILE_TOPIC, CHAT_TOPIC, PUBSUB_PEER_DISCOVERY } from './constants'
+import {
+  resolveRelayBootstrapAddrs,
+  selectAnnounceAddrs,
+  toCircuitListenAddrs,
+  type RelayBootstrapResolution,
+} from './aleph-bootstrap'
 import { directMessage } from './direct-message'
 import { enable, forComponent } from './logger'
 import type { Libp2pType } from '@/context/ctx'
@@ -41,15 +43,6 @@ function getConfiguredRelayListenAddrs(): string[] {
   return parseCsvEnv(process.env.NEXT_PUBLIC_RELAY_LISTEN_ADDRS)
 }
 
-function getConfiguredBootstrapPeerIds(): string[] {
-  const configured = parseCsvEnv(process.env.NEXT_PUBLIC_BOOTSTRAP_PEER_IDS)
-  if (configured.length > 0) {
-    return configured
-  }
-
-  return BOOTSTRAP_PEER_IDS
-}
-
 function getDelegatedRoutingURL(): string {
   const configured = process.env.NEXT_PUBLIC_DELEGATED_ROUTING_URL?.trim()
   if (configured) {
@@ -63,14 +56,44 @@ export async function startLibp2p(): Promise<Libp2pType> {
   enable('ui*,libp2p*,-libp2p:connection-manager*,-*:trace')
 
   const delegatedClient = createDelegatedRoutingV1HttpApiClient(getDelegatedRoutingURL())
-  const relayBootstrapAddrs = await getRelayBootstrapAddrs(delegatedClient)
-  log('starting libp2p with relayBootstrapAddrs: %o', relayBootstrapAddrs)
+  const relayBootstrap = await getRelayBootstrapAddrs()
+  const relayBootstrapAddrs = relayBootstrap.addresses
+  if (relayBootstrap.error) {
+    log.error('aleph relay discovery failed, using the baked snapshot: %o', relayBootstrap.error)
+  }
+  log('starting libp2p with relayBootstrapAddrs from %s: %o', relayBootstrap.source, relayBootstrapAddrs)
 
   const libp2p = await createLibp2p({
     addresses: {
-      listen: ['/webrtc'],
+      // A browser has no dialable address of its own: it needs a circuit
+      // reservation on a relay before anyone can reach it, and
+      // `circuitRelayTransport()` only reserves on relays named here. Without
+      // these entries the node starts, connects out, announces zero addresses,
+      // and is never found by anyone — which is what leaves the peer list at
+      // just the relays.
+      listen: ['/webrtc', ...toCircuitListenAddrs(relayBootstrapAddrs)],
+      announceFilter: (multiaddrs) => selectAnnounceAddrs(multiaddrs),
     },
-    transports: [webTransport(), webSockets(), webRTC(), webRTCDirect(), circuitRelayTransport()],
+    transportManager: {
+      // One unreachable relay must not keep the app from starting. The default
+      // is fatal for any failed listen address, and that is how a single stale
+      // baked relay turned the deployed build into a permanent
+      // "Initializing libp2p peer" screen.
+      faultTolerance: FaultTolerance.NO_FATAL,
+    },
+    transports: [
+      webTransport(),
+      webSockets(),
+      webRTC(),
+      webRTCDirect(),
+      // Bound the wait for a circuit reservation. `createLibp2p()` does not
+      // resolve until every listen address has settled, and the whole UI —
+      // including the extension manager, which only starts once the libp2p
+      // context hands out a node — is gated on that promise. Without a bound,
+      // one slow relay leaves the app on "Initializing libp2p peer" for
+      // minutes while the node underneath is already connected and talking.
+      circuitRelayTransport({ reservationCompletionTimeout: 10_000 }),
+    ],
     connectionEncrypters: [noise()],
     streamMuxers: [yamux()],
     connectionGater: {
@@ -91,6 +114,15 @@ export async function startLibp2p(): Promise<Libp2pType> {
       }),
       delegatedRouting: () => delegatedClient,
       identify: identify(),
+      // Without this, a peer's view of us is frozen at whatever we announced
+      // during the one identify run on connect. Relay and WebRTC connections
+      // are established while we are still starting, so peers saw only
+      // id/ping/webrtc-signaling and never learned that gossipsub, direct
+      // messages or anything else had come up — measured on the spreadsheet's
+      // peer store, whose entry for us listed exactly those three protocols.
+      // Gossipsub's topology matches on `/meshsub/*`, so it never fired and
+      // the two nodes stayed connected without ever forming a mesh.
+      identifyPush: identifyPush(),
       directMessage: directMessage(),
       ping: ping(),
     },
@@ -169,49 +201,14 @@ export const connectToMultiaddr = (libp2p: Libp2p) => async (address: Multiaddr)
   }
 }
 
-async function getRelayBootstrapAddrs(client: DelegatedRoutingV1HttpApiClient): Promise<string[]> {
+async function getRelayBootstrapAddrs(): Promise<RelayBootstrapResolution> {
   const configuredRelayListenAddrs = getConfiguredRelayListenAddrs()
   if (configuredRelayListenAddrs.length > 0) {
     log('using NEXT_PUBLIC_RELAY_LISTEN_ADDRS override as explicit relay bootstrap addresses')
-    return configuredRelayListenAddrs
+    return { addresses: configuredRelayListenAddrs, source: 'baked' }
   }
 
-  const bootstrapPeerIds = getConfiguredBootstrapPeerIds()
-  const peers = await Promise.all(bootstrapPeerIds.map((peerId) => first(client.getPeers(peerIdFromString(peerId)))))
-
-  const relayBootstrapAddrs: string[] = []
-  for (const peer of peers) {
-    if (!peer || peer.Addrs.length === 0) {
-      continue
-    }
-
-    for (const maddr of peer.Addrs) {
-      if (isBrowserDialableBootstrapAddr(maddr)) {
-        relayBootstrapAddrs.push(getRelayBootstrapAddr(maddr, peer.ID))
-      }
-    }
-  }
-
-  return relayBootstrapAddrs
-}
-
-const getRelayBootstrapAddr = (maddr: Multiaddr, peer: PeerId): string => `${maddr.toString()}/p2p/${peer.toString()}`
-
-function isBrowserDialableBootstrapAddr(maddr: Multiaddr): boolean {
-  const protos = maddr.protoNames()
-  const isSecureWebSocketAddr = protos.includes('tls') && protos.includes('ws')
-  const isWebTransportAddr = protos.includes('webtransport')
-
-  if (!isSecureWebSocketAddr && !isWebTransportAddr) {
-    return false
-  }
-
-  try {
-    const host = maddr.nodeAddress().address
-    return host !== '127.0.0.1' && host !== '::1' && host !== '0.0.0.0' && host !== '::'
-  } catch {
-    return true
-  }
+  return resolveRelayBootstrapAddrs()
 }
 
 export const getFormattedConnections = (connections: Connection[]) =>
