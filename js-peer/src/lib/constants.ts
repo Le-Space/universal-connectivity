@@ -12,8 +12,26 @@ export const CIRCUIT_RELAY_CODE = 290
 
 export const MIME_TEXT_PLAIN = 'text/plain'
 
-// 👇 App specific dedicated bootstrap PeerIDs
-// Their multiaddrs are ephemeral so peer routing is used to resolve multiaddr
-export const WEBTRANSPORT_BOOTSTRAP_PEER_ID = '12D3KooWFhXabKDwALpzqMbto94sB7rvmZ6M28hs9Y9xSopDKwQr'
+// 👇 Relay discovery
+// This used to be a single hard-coded bootstrap peer ID resolved through
+// delegated routing. That peer is gone — the lookup returns an empty peer list
+// — and a browser that finds no relay never gets a reachable address, so it can
+// neither be dialled nor discover anyone.
+//
+// Relays now self-register on a public Aleph channel and republish every 6 h,
+// so discovery asks that channel for whatever is current instead of trusting a
+// constant. The profile scopes the answer: several relay implementations share
+// the channel, and a browser that picks a relay from the wrong one never forms
+// a shared circuit. Extensions (e.g. the Yjs spreadsheet) resolve the same
+// profile — that agreement is what puts both apps on one relay.
+export const RELAY_BOOTSTRAP_PROFILE = 'uc-go-peer'
 
-export const BOOTSTRAP_PEER_IDS = [WEBTRANSPORT_BOOTSTRAP_PEER_ID]
+// Snapshot from the same Aleph channel, used only when discovery cannot be
+// reached (offline, API down). Every relay deploy mints a new peer ID, so this
+// list goes stale by design — which is why it is the fallback, not the source.
+export const RELAY_BOOTSTRAP_FALLBACK = [
+  '/dns4/they-idea-quick-soda.2n6.me/tcp/443/tls/ws/p2p/16Uiu2HAkuwNWxbdqi4QAiX5HNNVA8hmk2Ya5LAAc5KUdSNwjLH7L',
+  '/dns6/they-idea-quick-soda.2n6.me/tcp/443/tls/ws/p2p/16Uiu2HAkuwNWxbdqi4QAiX5HNNVA8hmk2Ya5LAAc5KUdSNwjLH7L',
+  '/dns4/arena-soul-sniff-cube.2n6.me/tcp/443/tls/ws/p2p/16Uiu2HAmRCbUxTCZmDwPtRM7VnmjFHYxqCeQtGWLXG7ssLRczor2',
+  '/dns6/arena-soul-sniff-cube.2n6.me/tcp/443/tls/ws/p2p/16Uiu2HAmRCbUxTCZmDwPtRM7VnmjFHYxqCeQtGWLXG7ssLRczor2',
+]
