@@ -1,0 +1,100 @@
+name: Build & Deploy js-peer to Aleph IPFS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'js-peer/**'
+      - '.github/workflows/deploy-js-peer.yml'
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: >-
+          Aleph custom domain to link. Empty uses the default uc.le-space.de on
+          pushes to main and skips linking otherwise.
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js-peer
+    env:
+      # Only a push of the default branch may update the public domain. A manual
+      # run from a feature branch has to name its target explicitly, so a
+      # throwaway build cannot silently take over uc.le-space.de.
+      DEFAULT_DOMAIN: ${{ github.ref == 'refs/heads/main' && 'uc.le-space.de' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          # Node 22 aborts the multipart upload to the Aleph IPFS gateway with
+          # "terminated"; 24 is what these deploys run on.
+          node-version: '24.x'
+          cache: npm
+          cache-dependency-path: js-peer/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Install isolated Aleph deploy tooling
+        run: npm install --prefix /tmp/le-space-deployer @le-space/node@0.6.30
+
+      - name: Publish to Aleph IPFS
+        id: publish
+        env:
+          ALEPH_VM_MODE: site-publish
+          ALEPH_SITE_DIRECTORY: ${{ github.workspace }}/js-peer/out
+          ALEPH_SITE_PIN: 'true'
+          ALEPH_SITE_NAME: universal-connectivity
+          ALEPH_SITE_CHANNEL: ALEPH-CLOUDSOLUTIONS
+          ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
+        run: |
+          # The gateway upload is intermittently dropped mid-request; a plain
+          # retry has always been enough.
+          for attempt in 1 2 3; do
+            if node --input-type=module -e "import('/tmp/le-space-deployer/node_modules/@le-space/node/index.js').then((m) => m.runSiteMode())"; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "Aleph publish attempt $attempt failed; retrying..."
+            sleep $((attempt * 15))
+          done
+
+      - name: Link custom domain
+        # Linking a domain to a STORE message Aleph has not processed yet would
+        # point the hostname at nothing.
+        if: >-
+          (inputs.domain != '' || env.DEFAULT_DOMAIN != '') &&
+          steps.publish.outputs.item_hash != '' &&
+          steps.publish.outputs.store_processed == 'true'
+        env:
+          ALEPH_VM_MODE: site-domain-link
+          ALEPH_SITE_ITEM_HASH: ${{ steps.publish.outputs.item_hash }}
+          ALEPH_SITE_IPFS_CID: ${{ steps.publish.outputs.ipfs_cid }}
+          ALEPH_SITE_IPFS_CID_V0: ${{ steps.publish.outputs.ipfs_cid_v0 }}
+          ALEPH_SITE_DOMAIN: ${{ inputs.domain || env.DEFAULT_DOMAIN }}
+          ALEPH_SITE_DOMAIN_CATCH_ALL_PATH: /index.html
+          ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
+        run: node --input-type=module -e "import('/tmp/le-space-deployer/node_modules/@le-space/node/index.js').then((m) => m.runSiteMode())"
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo '## js-peer deployment'
+            echo
+            echo "- IPFS CID: \`${{ steps.publish.outputs.ipfs_cid }}\`"
+            echo "- Aleph STORE: \`${{ steps.publish.outputs.store_status }}\`"
+            echo "- Gateway: ${{ steps.publish.outputs.url }}"
+            echo "- Domain: https://${{ inputs.domain || env.DEFAULT_DOMAIN }}"
+          } >> "$GITHUB_STEP_SUMMARY"
